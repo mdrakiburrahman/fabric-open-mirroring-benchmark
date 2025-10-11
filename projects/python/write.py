@@ -69,7 +69,7 @@ def writer_task(
 
             if interval > 0 and not stop_event.is_set():
                 logger.info(
-                    f"[{writer_id}/{total_writers-1}] Waiting {interval} seconds before next upload..."
+                    f"[{writer_id}/{total_writers-1}] Waiting {interval} seconds before next upload"
                 )
                 stop_event.wait(interval)
 
