@@ -34,15 +34,11 @@ class OpenMirroringClient:
     def _create_service_client(self):
         """Creates and returns a DataLakeServiceClient."""
         try:
-            return DataLakeServiceClient(
-                account_url=self.host, credential=self.credential
-            )
+            return DataLakeServiceClient(account_url=self.host, credential=self.credential)
         except Exception as e:
             raise Exception(f"Failed to create DataLakeServiceClient: {e}")
 
-    def create_table(
-        self, schema_name: str = None, table_name: str = "", key_cols: list = []
-    ):
+    def create_table(self, schema_name: str = None, table_name: str = "", key_cols: list = []):
         """
         Creates a folder in OneLake storage and a _metadata.json file inside it.
         This method is idempotent - if the table already exists, it will not recreate it.
@@ -54,21 +50,15 @@ class OpenMirroringClient:
         if not table_name:
             raise ValueError("table_name cannot be empty.")
 
-        folder_path = (
-            f"{schema_name}.schema/{table_name}" if schema_name else f"{table_name}"
-        )
+        folder_path = f"{schema_name}.schema/{table_name}" if schema_name else f"{table_name}"
 
         try:
-            file_system_client = self.service_client.get_file_system_client(
-                file_system="LandingZone"
-            )
+            file_system_client = self.service_client.get_file_system_client(file_system="LandingZone")
             directory_client = file_system_client.get_directory_client(folder_path)
 
             metadata_file_client = directory_client.get_file_client("_metadata.json")
             if metadata_file_client.exists():
-                self.logger.warning(
-                    f"Table '{folder_path}' already exists with _metadata.json. Skipping creation."
-                )
+                self.logger.warning(f"Table '{folder_path}' already exists with _metadata.json. Skipping creation.")
                 return
 
             if not directory_client.exists():
@@ -105,14 +95,10 @@ class OpenMirroringClient:
         if not table_name:
             raise ValueError("table_name cannot be empty.")
 
-        folder_path = (
-            f"{schema_name}.schema/{table_name}" if schema_name else f"{table_name}"
-        )
+        folder_path = f"{schema_name}.schema/{table_name}" if schema_name else f"{table_name}"
 
         try:
-            file_system_client = self.service_client.get_file_system_client(
-                file_system="LandingZone"
-            )
+            file_system_client = self.service_client.get_file_system_client(file_system="LandingZone")
             directory_client = file_system_client.get_directory_client(folder_path)
 
             if not directory_client.exists():
@@ -124,18 +110,12 @@ class OpenMirroringClient:
 
             if remove_schema_folder and schema_name:
                 schema_folder_path = f"{schema_name}.schema"
-                schema_directory_client = file_system_client.get_directory_client(
-                    schema_folder_path
-                )
+                schema_directory_client = file_system_client.get_directory_client(schema_folder_path)
                 if schema_directory_client.exists():
                     schema_directory_client.delete_directory()
-                    self.logger.debug(
-                        f"Schema folder '{schema_folder_path}' deleted successfully."
-                    )
+                    self.logger.debug(f"Schema folder '{schema_folder_path}' deleted successfully.")
                 else:
-                    self.logger.warning(
-                        f"Schema folder '{schema_folder_path}' not found."
-                    )
+                    self.logger.warning(f"Schema folder '{schema_folder_path}' not found.")
 
         except Exception as e:
             raise Exception(f"Failed to delete table: {e}")
@@ -151,29 +131,17 @@ class OpenMirroringClient:
         if not table_name:
             raise ValueError("table_name cannot be empty.")
 
-        folder_path = (
-            f"LandingZone/{schema_name}.schema/{table_name}"
-            if schema_name
-            else f"LandingZone/{table_name}"
-        )
+        folder_path = f"LandingZone/{schema_name}.schema/{table_name}" if schema_name else f"LandingZone/{table_name}"
 
         try:
-            file_system_client = self.service_client.get_file_system_client(
-                file_system=folder_path
-            )
+            file_system_client = self.service_client.get_file_system_client(file_system=folder_path)
             file_list = file_system_client.get_paths(recursive=False)
             parquet_files = []
 
             for file in file_list:
                 file_name = os.path.basename(file.name)
-                if (
-                    not file.is_directory
-                    and file_name.endswith(".parquet")
-                    and not file_name.startswith("_")
-                ):
-                    if (
-                        not file_name[:-8].isdigit() or len(file_name[:-8]) != 20
-                    ):  # Exclude ".parquet"
+                if not file.is_directory and file_name.endswith(".parquet") and not file_name.startswith("_"):
+                    if not file_name[:-8].isdigit() or len(file_name[:-8]) != 20:  # Exclude ".parquet"
                         raise ValueError(f"Invalid file name pattern: {file_name}")
                     parquet_files.append(int(file_name[:-8]))
 
@@ -207,14 +175,10 @@ class OpenMirroringClient:
         if not local_file_path or not os.path.isfile(local_file_path):
             raise ValueError("Invalid local file path.")
 
-        folder_path = (
-            f"{schema_name}.schema/{table_name}" if schema_name else f"{table_name}"
-        )
+        folder_path = f"{schema_name}.schema/{table_name}" if schema_name else f"{table_name}"
 
         try:
-            file_system_client = self.service_client.get_file_system_client(
-                file_system="LandingZone"
-            )
+            file_system_client = self.service_client.get_file_system_client(file_system="LandingZone")
             directory_client = file_system_client.get_directory_client(folder_path)
 
             if not directory_client.exists():
@@ -224,9 +188,7 @@ class OpenMirroringClient:
             file_client = directory_client.create_file(temp_file_name)
             with open(local_file_path, "rb") as file_data:
                 file_contents = file_data.read()
-                file_client.append_data(
-                    data=file_contents, offset=0, length=len(file_contents)
-                )
+                file_client.append_data(data=file_contents, offset=0, length=len(file_contents))
                 file_client.flush_data(len(file_contents))
 
             self.logger.debug(f"File uploaded successfully as '{temp_file_name}'.")
@@ -234,39 +196,27 @@ class OpenMirroringClient:
             for attempt in range(retry_on_conflict):
                 try:
                     next_file_name = self.get_next_file_name(schema_name, table_name)
-                    rename_success = self.rename_file(
-                        f"LandingZone/{folder_path}", temp_file_name, next_file_name
-                    )
+                    rename_success = self.rename_file(f"LandingZone/{folder_path}", temp_file_name, next_file_name)
 
                     if rename_success:
-                        self.logger.debug(
-                            f"File renamed successfully to '{next_file_name}' on attempt {attempt + 1}."
-                        )
+                        self.logger.debug(f"File renamed successfully to '{next_file_name}' on attempt {attempt + 1}.")
                         return
                     else:
                         if attempt < retry_on_conflict - 1:
-                            self.logger.warning(
-                                f"Rename attempt {attempt + 1} failed, retrying..."
-                            )
+                            self.logger.warning(f"Rename attempt {attempt + 1} failed, retrying...")
                             time.sleep(0.1 * (attempt + 1))
                         continue
 
                 except Exception as e:
                     if attempt < retry_on_conflict - 1:
-                        self.logger.warning(
-                            f"Error on rename attempt {attempt + 1}: {e}, retrying..."
-                        )
+                        self.logger.warning(f"Error on rename attempt {attempt + 1}: {e}, retrying...")
                         time.sleep(0.1 * (attempt + 1))
                         continue
                     else:
                         try:
-                            temp_file_client = directory_client.get_file_client(
-                                temp_file_name
-                            )
+                            temp_file_client = directory_client.get_file_client(temp_file_name)
                             temp_file_client.delete_file()
-                            self.logger.warning(
-                                f"Cleaned up temp file '{temp_file_name}' after failed rename attempts."
-                            )
+                            self.logger.warning(f"Cleaned up temp file '{temp_file_name}' after failed rename attempts.")
                         except:
                             pass
                         raise
@@ -274,22 +224,16 @@ class OpenMirroringClient:
             try:
                 temp_file_client = directory_client.get_file_client(temp_file_name)
                 temp_file_client.delete_file()
-                self.logger.warning(
-                    f"Cleaned up temp file '{temp_file_name}' after exhausting retry attempts."
-                )
+                self.logger.warning(f"Cleaned up temp file '{temp_file_name}' after exhausting retry attempts.")
             except:
                 pass
 
-            raise Exception(
-                f"Failed to rename file after {retry_on_conflict} attempts. Concurrent write conflict."
-            )
+            raise Exception(f"Failed to rename file after {retry_on_conflict} attempts. Concurrent write conflict.")
 
         except Exception as e:
             raise Exception(f"Failed to upload data file: {e}")
 
-    def rename_file(
-        self, folder_path: str, old_file_name: str, new_file_name: str
-    ) -> bool:
+    def rename_file(self, folder_path: str, old_file_name: str, new_file_name: str) -> bool:
         """
         Renames a file using the REST API.
 
@@ -309,14 +253,10 @@ class OpenMirroringClient:
         response = requests.put(rename_url, headers=headers)
 
         if response.status_code in [200, 201]:
-            self.logger.debug(
-                f"File renamed from {old_file_name} to {new_file_name} successfully."
-            )
+            self.logger.debug(f"File renamed from {old_file_name} to {new_file_name} successfully.")
             return True
         else:
-            self.logger.debug(
-                f"Failed to rename file. Status code: {response.status_code}, Error: {response.text}"
-            )
+            self.logger.debug(f"Failed to rename file. Status code: {response.status_code}, Error: {response.text}")
             return False
 
     def get_mirrored_database_status(self) -> str:
@@ -326,15 +266,11 @@ class OpenMirroringClient:
         :return: JSON string of the mirrored database status.
         :raises Exception: If the status file or path does not exist.
         """
-        file_system_client = self.service_client.get_file_system_client(
-            file_system="Monitoring"
-        )
+        file_system_client = self.service_client.get_file_system_client(file_system="Monitoring")
         try:
             file_client = file_system_client.get_file_client("replicator.json")
             if not file_client.exists():
-                raise Exception(
-                    "No status of mirrored database has been found. Please check whether the mirrored database has been started properly."
-                )
+                raise Exception("No status of mirrored database has been found. Please check whether the mirrored database has been started properly.")
 
             download = file_client.download_file()
             content = download.readall()
@@ -342,9 +278,7 @@ class OpenMirroringClient:
             return json.dumps(status_json, indent=4)
 
         except Exception:
-            raise Exception(
-                "No status of mirrored database has been found. Please check whether the mirrored database has been started properly."
-            )
+            raise Exception("No status of mirrored database has been found. Please check whether the mirrored database has been started properly.")
 
     def get_table_status(self, schema_name: str = None, table_name: str = None) -> str:
         """
@@ -355,15 +289,11 @@ class OpenMirroringClient:
         :return: JSON string of the table status.
         :raises Exception: If the status file or path does not exist.
         """
-        file_system_client = self.service_client.get_file_system_client(
-            file_system="Monitoring"
-        )
+        file_system_client = self.service_client.get_file_system_client(file_system="Monitoring")
         try:
             file_client = file_system_client.get_file_client("tables.json")
             if not file_client.exists():
-                raise Exception(
-                    "No status of mirrored database has been found. Please check whether the mirrored database has been started properly."
-                )
+                raise Exception("No status of mirrored database has been found. Please check whether the mirrored database has been started properly.")
 
             download = file_client.download_file()
             content = download.readall()
@@ -374,15 +304,8 @@ class OpenMirroringClient:
             if not schema_name and not table_name:
                 return json.dumps(status_json, indent=4)
             else:
-                filtered_tables = [
-                    t
-                    for t in status_json.get("tables", [])
-                    if t.get("sourceSchemaName", "") == schema_name
-                    and t.get("sourceTableName", "") == table_name
-                ]
+                filtered_tables = [t for t in status_json.get("tables", []) if t.get("sourceSchemaName", "") == schema_name and t.get("sourceTableName", "") == table_name]
                 return json.dumps({"tables": filtered_tables}, indent=4)
 
         except Exception:
-            raise Exception(
-                "No status of mirrored database has been found. Please check whether the mirrored database has been started properly."
-            )
+            raise Exception("No status of mirrored database has been found. Please check whether the mirrored database has been started properly.")

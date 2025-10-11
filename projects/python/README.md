@@ -6,15 +6,21 @@
 
 ## Run in Windows
 
+Setup:
+
 ```powershell
 $GIT_ROOT = git rev-parse --show-toplevel
 cd "$GIT_ROOT\projects\python"
 
-# Setup
-#
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
+```
+
+Format:
+
+```powershell
+python -m black --line-length 2000 .
 ```
 
 Run:
@@ -25,8 +31,7 @@ python write.py `
   --schema-name "microsoft" `
   --table-name "employees" `
   --key-cols "EmployeeID" `
-  --local-file-path "C:\Users\mdrrahman\Downloads\Open Mirroring\source_employees\00000000000000000001.parquet" `
   --interval 0 `
-  --duration 3000 `
+  --duration 30 `
   --concurrent-writers 16
 ```

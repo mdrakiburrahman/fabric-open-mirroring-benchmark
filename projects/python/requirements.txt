@@ -1,2 +1,4 @@
 azure-identity==1.23.0
+black==25.9.0
 azure-storage-file-datalake==12.21.0
+duckdb==1.4.1
