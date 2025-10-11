@@ -27,5 +27,6 @@ python write.py `
   --key-cols "EmployeeID" `
   --local-file-path "C:\Users\mdrrahman\Downloads\Open Mirroring\source_employees\00000000000000000001.parquet" `
   --continuous `
-  --interval 0
+  --interval 0 `
+  --duration 30
 ```

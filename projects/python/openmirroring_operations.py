@@ -60,14 +60,14 @@ class OpenMirroringClient:
             
             if not directory_client.exists():
                 directory_client.create_directory()
-                self.logger.info(f"Directory created at: {folder_path}")
+                self.logger.debug(f"Directory created at: {folder_path}")
 
             metadata_content = {"keyColumns": [f'{col}' for col in key_cols]}
             file_client = directory_client.create_file("_metadata.json")
             file_client.append_data(data=json.dumps(metadata_content), offset=0, length=len(json.dumps(metadata_content)))
             file_client.flush_data(len(json.dumps(metadata_content)))
 
-            self.logger.info(f"_metadata.json created successfully at: {folder_path}")
+            self.logger.debug(f"_metadata.json created successfully at: {folder_path}")
 
         except Exception as e:
             raise Exception(f"Failed to create table: {e}")
@@ -94,14 +94,14 @@ class OpenMirroringClient:
                 return
 
             directory_client.delete_directory()
-            self.logger.info(f"Folder '{folder_path}' deleted successfully.")
+            self.logger.debug(f"Folder '{folder_path}' deleted successfully.")
 
             if remove_schema_folder and schema_name:
                 schema_folder_path = f"{schema_name}.schema"
                 schema_directory_client = file_system_client.get_directory_client(schema_folder_path)
                 if schema_directory_client.exists():
                     schema_directory_client.delete_directory()
-                    self.logger.info(f"Schema folder '{schema_folder_path}' deleted successfully.")
+                    self.logger.debug(f"Schema folder '{schema_folder_path}' deleted successfully.")
                 else:
                     self.logger.warning(f"Schema folder '{schema_folder_path}' not found.")
 
@@ -173,9 +173,9 @@ class OpenMirroringClient:
                 file_client.append_data(data=file_contents, offset=0, length=len(file_contents))
                 file_client.flush_data(len(file_contents))
 
-            self.logger.info(f"File uploaded successfully as '{temp_file_name}'.")
+            self.logger.debug(f"File uploaded successfully as '{temp_file_name}'.")
             self.rename_file(f"LandingZone/{folder_path}", temp_file_name, next_file_name)
-            self.logger.info(f"File renamed successfully to '{next_file_name}'.")
+            self.logger.debug(f"File renamed successfully to '{next_file_name}'.")
 
         except Exception as e:
             raise Exception(f"Failed to upload data file: {e}")
@@ -192,14 +192,15 @@ class OpenMirroringClient:
         response = requests.put(rename_url, headers=headers)
 
         if response.status_code in [200, 201]:
-            self.logger.info(f"File renamed from {old_file_name} to {new_file_name} successfully.")
+            self.logger.debug(f"File renamed from {old_file_name} to {new_file_name} successfully.")
         else:
             self.logger.error(f"Failed to rename file. Status code: {response.status_code}, Error: {response.text}")
 
-    def get_mirrored_database_status(self):
+    def get_mirrored_database_status(self) -> str:
         """
-        Retrieves and displays the status of the mirrored database from Monitoring/replicator.json.
+        Retrieves and returns the status of the mirrored database from Monitoring/replicator.json.
 
+        :return: JSON string of the mirrored database status.
         :raises Exception: If the status file or path does not exist.
         """
         file_system_client = self.service_client.get_file_system_client(file_system="Monitoring")
@@ -211,17 +212,18 @@ class OpenMirroringClient:
             download = file_client.download_file()
             content = download.readall()
             status_json = json.loads(content)
-            self.logger.info(f"Mirrored database status: {json.dumps(status_json, indent=4)}")
+            return json.dumps(status_json, indent=4)
 
         except Exception:
             raise Exception("No status of mirrored database has been found. Please check whether the mirrored database has been started properly.")
 
-    def get_table_status(self, schema_name: str = None, table_name: str = None):
+    def get_table_status(self, schema_name: str = None, table_name: str = None) -> str:
         """
-        Retrieves and displays the status of tables from Monitoring/table.json.
+        Retrieves and returns the status of tables from Monitoring/table.json.
 
         :param schema_name: Optional schema name to filter.
         :param table_name: Optional table name to filter.
+        :return: JSON string of the table status.
         :raises Exception: If the status file or path does not exist.
         """
         file_system_client = self.service_client.get_file_system_client(file_system="Monitoring")
@@ -237,13 +239,13 @@ class OpenMirroringClient:
             table_name = table_name or ""
 
             if not schema_name and not table_name:
-                self.logger.info(f"Table status: {json.dumps(status_json, indent=4)}")
+                return json.dumps(status_json, indent=4)
             else:
                 filtered_tables = [
                     t for t in status_json.get("tables", [])
                     if t.get("sourceSchemaName", "") == schema_name and t.get("sourceTableName", "") == table_name
                 ]
-                self.logger.info(f"Filtered table status: {json.dumps({'tables': filtered_tables}, indent=4)}")
+                return json.dumps({'tables': filtered_tables}, indent=4)
 
         except Exception:
             raise Exception("No status of mirrored database has been found. Please check whether the mirrored database has been started properly.")
