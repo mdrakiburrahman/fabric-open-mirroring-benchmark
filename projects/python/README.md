@@ -33,5 +33,6 @@ python write.py `
   --key-cols "EmployeeID" `
   --interval 0 `
   --duration 30 `
-  --concurrent-writers 16
+  --concurrent-writers 16 `
+  --num-rows 500000
 ```

@@ -68,6 +68,7 @@ def writer_task(
     mirroring_client: OpenMirroringClient,
     schema_name: str,
     table_name: str,
+    num_rows: int,
     start_time: float,
     duration: int,
     interval: int,
@@ -87,7 +88,7 @@ def writer_task(
                 elapsed = time.time() - start_time
                 remaining = duration - elapsed
 
-            parquet_file_path = generate_parquet_file()
+            parquet_file_path = generate_parquet_file(num_rows)
             try:
                 upload_start_time = time.time()
                 mirroring_client.upload_data_file(
@@ -126,6 +127,7 @@ def parse_args():
     parser.add_argument("--interval", type=int, default=5, help="Interval in seconds between uploads when using --continuous (default: 5 seconds).")
     parser.add_argument("--duration", type=int, default=60, help="Duration in seconds for continuous mode (default: 60 seconds). Use 0 for infinite duration.")
     parser.add_argument("--concurrent-writers", type=int, default=2, help="Number of concurrent writer threads (default: 2).")
+    parser.add_argument("--num-rows", type=int, default=100, help="Number of rows to generate in each parquet file (default: 100).")
 
     return parser.parse_args()
 
@@ -166,6 +168,7 @@ def main():
                     mirroring_client=mirroring_clients[writer_id],
                     schema_name=args.schema_name,
                     table_name=args.table_name,
+                    num_rows=args.num_rows,
                     start_time=start_time,
                     duration=args.duration,
                     interval=args.interval,
