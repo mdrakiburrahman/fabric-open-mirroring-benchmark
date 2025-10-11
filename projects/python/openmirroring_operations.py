@@ -6,11 +6,13 @@ from azure.core.credentials import TokenCredential
 import requests
 import json
 import os
+import logging
 
 class OpenMirroringClient:
-    def __init__(self, credential: TokenCredential, host: str):
+    def __init__(self, credential: TokenCredential, host: str, logger: logging.Logger):
         self.credential = credential
         self.host = self._normalize_path(host)
+        self.logger = logger
         self.service_client = self._create_service_client()
 
     def _normalize_path(self, path: str) -> str:
@@ -21,10 +23,8 @@ class OpenMirroringClient:
         :return: The normalized path.
         """
         if path.endswith("LandingZone"):
-            # Remove the 'LandingZone' segment
             return path[:path.rfind("/LandingZone")]
         elif path.endswith("LandingZone/"):
-            # Remove the 'LandingZone/' segment
             return path[:path.rfind("/LandingZone/")]
         return path
 
@@ -38,6 +38,7 @@ class OpenMirroringClient:
     def create_table(self, schema_name: str = None, table_name: str = "", key_cols: list = []):
         """
         Creates a folder in OneLake storage and a _metadata.json file inside it.
+        This method is idempotent - if the table already exists, it will not recreate it.
 
         :param schema_name: Optional schema name.
         :param table_name: Name of the table.
@@ -46,23 +47,28 @@ class OpenMirroringClient:
         if not table_name:
             raise ValueError("table_name cannot be empty.")
 
-        # Construct the folder path
         folder_path = f"{schema_name}.schema/{table_name}" if schema_name else f"{table_name}"
 
         try:
-            # Create the folder
-            file_system_client = self.service_client.get_file_system_client(file_system="LandingZone")  # Replace with your file system name
+            file_system_client = self.service_client.get_file_system_client(file_system="LandingZone")
             directory_client = file_system_client.get_directory_client(folder_path)
-            directory_client.create_directory()
+            
+            metadata_file_client = directory_client.get_file_client("_metadata.json")
+            if metadata_file_client.exists():
+                self.logger.warning(f"Table '{folder_path}' already exists with _metadata.json. Skipping creation.")
+                return
+            
+            if not directory_client.exists():
+                directory_client.create_directory()
+                self.logger.info(f"Directory created at: {folder_path}")
 
-            # Create the _metadata.json file
             metadata_content = {"keyColumns": [f'{col}' for col in key_cols]}
-            metadata_file_path = os.path.join(folder_path, "_metadata.json")
             file_client = directory_client.create_file("_metadata.json")
             file_client.append_data(data=json.dumps(metadata_content), offset=0, length=len(json.dumps(metadata_content)))
             file_client.flush_data(len(json.dumps(metadata_content)))
 
-            print(f"Folder and _metadata.json created successfully at: {folder_path}")
+            self.logger.info(f"_metadata.json created successfully at: {folder_path}")
+
         except Exception as e:
             raise Exception(f"Failed to create table: {e}")
 
@@ -77,32 +83,28 @@ class OpenMirroringClient:
         if not table_name:
             raise ValueError("table_name cannot be empty.")
 
-        # Construct the folder path
         folder_path = f"{schema_name}.schema/{table_name}" if schema_name else f"{table_name}"
 
         try:
-            # Get the directory client
-            file_system_client = self.service_client.get_file_system_client(file_system="LandingZone")  # Replace with your file system name
+            file_system_client = self.service_client.get_file_system_client(file_system="LandingZone")
             directory_client = file_system_client.get_directory_client(folder_path)
 
-            # Check if the folder exists
             if not directory_client.exists():
-                print(f"Warning: Folder '{folder_path}' not found.")
+                self.logger.warning(f"Folder '{folder_path}' not found.")
                 return
 
-            # Delete the folder
             directory_client.delete_directory()
-            print(f"Folder '{folder_path}' deleted successfully.")
+            self.logger.info(f"Folder '{folder_path}' deleted successfully.")
 
-            # Check if schema folder exists
             if remove_schema_folder and schema_name:
                 schema_folder_path = f"{schema_name}.schema"
                 schema_directory_client = file_system_client.get_directory_client(schema_folder_path)
                 if schema_directory_client.exists():
                     schema_directory_client.delete_directory()
-                    print(f"Schema folder '{schema_folder_path}' deleted successfully.")
+                    self.logger.info(f"Schema folder '{schema_folder_path}' deleted successfully.")
                 else:
-                    print(f"Warning: Schema folder '{schema_folder_path}' not found.")
+                    self.logger.warning(f"Schema folder '{schema_folder_path}' not found.")
+
         except Exception as e:
             raise Exception(f"Failed to delete table: {e}")
 
@@ -117,32 +119,25 @@ class OpenMirroringClient:
         if not table_name:
             raise ValueError("table_name cannot be empty.")
 
-        # Construct the folder path
         folder_path = f"LandingZone/{schema_name}.schema/{table_name}" if schema_name else f"LandingZone/{table_name}"
 
         try:
-            # Get the system client
             file_system_client = self.service_client.get_file_system_client(file_system=folder_path)
-
-            # List all files in the folder
             file_list = file_system_client.get_paths(recursive=False)
             parquet_files = []
 
             for file in file_list:
                 file_name = os.path.basename(file.name)
                 if not file.is_directory and file_name.endswith(".parquet") and not file_name.startswith("_"):
-                    # Validate the file name pattern
                     if not file_name[:-8].isdigit() or len(file_name[:-8]) != 20:  # Exclude ".parquet"
                         raise ValueError(f"Invalid file name pattern: {file_name}")
                     parquet_files.append(int(file_name[:-8]))
 
-            # Determine the next file name
             if parquet_files:
                 next_file_number = max(parquet_files) + 1
             else:
                 next_file_number = 1
 
-            # Return the next file name padded to 20 digits
             return f"{next_file_number:020}.parquet"
 
         except Exception as e:
@@ -161,64 +156,45 @@ class OpenMirroringClient:
         if not local_file_path or not os.path.isfile(local_file_path):
             raise ValueError("Invalid local file path.")
 
-        # Construct the folder path
         folder_path = f"{schema_name}.schema/{table_name}" if schema_name else f"{table_name}"
 
         try:
-            # Get the directory client
-            file_system_client = self.service_client.get_file_system_client(file_system="LandingZone")  # Replace with your file system name
+            file_system_client = self.service_client.get_file_system_client(file_system="LandingZone")
             directory_client = file_system_client.get_directory_client(folder_path)
 
-            # Check if the folder exists
             if not directory_client.exists():
                 raise FileNotFoundError(f"Folder '{folder_path}' not found.")
 
-            # Get the next file name
             next_file_name = self.get_next_file_name(schema_name, table_name)
-
-            # Add an underscore to the file name for temporary upload
             temp_file_name = f"_{next_file_name}"
-
-            # Upload the file
             file_client = directory_client.create_file(temp_file_name)
             with open(local_file_path, "rb") as file_data:
                 file_contents = file_data.read()
                 file_client.append_data(data=file_contents, offset=0, length=len(file_contents))
                 file_client.flush_data(len(file_contents))
 
-            print(f"File uploaded successfully as '{temp_file_name}'.")
-            
-            # Python SDK doesn't handle rename properly for onelake, using REST API to rename the file instead
-            self.rename_file_via_rest_api(f"LandingZone/{folder_path}", temp_file_name, next_file_name)
-            print(f"File renamed successfully to '{next_file_name}'.")
+            self.logger.info(f"File uploaded successfully as '{temp_file_name}'.")
+            self.rename_file(f"LandingZone/{folder_path}", temp_file_name, next_file_name)
+            self.logger.info(f"File renamed successfully to '{next_file_name}'.")
 
         except Exception as e:
             raise Exception(f"Failed to upload data file: {e}")
         
-    def rename_file_via_rest_api(self, folder_path: str, old_file_name: str, new_file_name: str):
-        # Get a token
+    def rename_file(self, folder_path: str, old_file_name: str, new_file_name: str):
         token = self.credential.get_token("https://storage.azure.com/.default").token
-
-        # Construct the rename URL
         rename_url = f"{self.host}/{folder_path}/{new_file_name}"
-
-        # Construct the source path
         source_path = f"{self.host}/{folder_path}/{old_file_name}"
-
-        # Set the headers
         headers = {
             "Authorization": f"Bearer {token}",
             "x-ms-rename-source": source_path,
             "x-ms-version": "2020-06-12"
         }
-
-        # Send the rename request
         response = requests.put(rename_url, headers=headers)
 
         if response.status_code in [200, 201]:
-            print(f"File renamed from {old_file_name} to {new_file_name} successfully.")
+            self.logger.info(f"File renamed from {old_file_name} to {new_file_name} successfully.")
         else:
-            print(f"Failed to rename file. Status code: {response.status_code}, Error: {response.text}")
+            self.logger.error(f"Failed to rename file. Status code: {response.status_code}, Error: {response.text}")
 
     def get_mirrored_database_status(self):
         """
@@ -235,7 +211,8 @@ class OpenMirroringClient:
             download = file_client.download_file()
             content = download.readall()
             status_json = json.loads(content)
-            print(json.dumps(status_json, indent=4))
+            self.logger.info(f"Mirrored database status: {json.dumps(status_json, indent=4)}")
+
         except Exception:
             raise Exception("No status of mirrored database has been found. Please check whether the mirrored database has been started properly.")
 
@@ -256,20 +233,17 @@ class OpenMirroringClient:
             download = file_client.download_file()
             content = download.readall()
             status_json = json.loads(content)
-
-            # Treat None as empty string for filtering
             schema_name = schema_name or ""
             table_name = table_name or ""
 
             if not schema_name and not table_name:
-                # Show the whole JSON content
-                print(json.dumps(status_json, indent=4))
+                self.logger.info(f"Table status: {json.dumps(status_json, indent=4)}")
             else:
-                # Filter tables array
                 filtered_tables = [
                     t for t in status_json.get("tables", [])
                     if t.get("sourceSchemaName", "") == schema_name and t.get("sourceTableName", "") == table_name
                 ]
-                print(json.dumps({"tables": filtered_tables}, indent=4))
+                self.logger.info(f"Filtered table status: {json.dumps({'tables': filtered_tables}, indent=4)}")
+
         except Exception:
             raise Exception("No status of mirrored database has been found. Please check whether the mirrored database has been started properly.")
