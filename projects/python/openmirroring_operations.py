@@ -187,20 +187,20 @@ class OpenMirroringClient:
                         return
                     else:
                         if attempt < retry_on_conflict - 1:
-                            self.logger.debug(f"Rename attempt {attempt + 1} failed, retrying...")
+                            self.logger.warning(f"Rename attempt {attempt + 1} failed, retrying...")
                             time.sleep(0.1 * (attempt + 1))
                         continue
                         
                 except Exception as e:
                     if attempt < retry_on_conflict - 1:
-                        self.logger.debug(f"Error on rename attempt {attempt + 1}: {e}, retrying...")
+                        self.logger.warning(f"Error on rename attempt {attempt + 1}: {e}, retrying...")
                         time.sleep(0.1 * (attempt + 1))
                         continue
                     else:
                         try:
                             temp_file_client = directory_client.get_file_client(temp_file_name)
                             temp_file_client.delete_file()
-                            self.logger.debug(f"Cleaned up temp file '{temp_file_name}' after failed rename attempts.")
+                            self.logger.warning(f"Cleaned up temp file '{temp_file_name}' after failed rename attempts.")
                         except:
                             pass
                         raise
@@ -208,7 +208,7 @@ class OpenMirroringClient:
             try:
                 temp_file_client = directory_client.get_file_client(temp_file_name)
                 temp_file_client.delete_file()
-                self.logger.debug(f"Cleaned up temp file '{temp_file_name}' after exhausting retry attempts.")
+                self.logger.warning(f"Cleaned up temp file '{temp_file_name}' after exhausting retry attempts.")
             except:
                 pass
             

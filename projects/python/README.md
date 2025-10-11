@@ -27,5 +27,6 @@ python write.py `
   --key-cols "EmployeeID" `
   --local-file-path "C:\Users\mdrrahman\Downloads\Open Mirroring\source_employees\00000000000000000001.parquet" `
   --interval 0 `
-  --duration 30
+  --duration 3000 `
+  --concurrent-writers 16
 ```

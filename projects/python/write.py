@@ -4,7 +4,8 @@
 import argparse
 import logging
 import time
-from xmlrpc import client
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from azure.identity import AzureCliCredential
 from openmirroring_operations import OpenMirroringClient
 
@@ -16,6 +17,59 @@ logging.basicConfig(
 logging.getLogger(__name__).setLevel(logging.INFO)
 logging.getLogger('openmirroring_operations').setLevel(logging.INFO)
 
+upload_counter = threading.Lock()
+global_upload_count = 0
+
+def get_next_upload_number() -> int:
+    global global_upload_count
+    with upload_counter:
+        global_upload_count += 1
+        return global_upload_count
+
+def writer_task(writer_id: int, 
+                total_writers: int, 
+                mirroring_client: OpenMirroringClient, 
+                schema_name: str, 
+                table_name: str, 
+                local_file_path: str, 
+                start_time: float, 
+                duration: int, 
+                interval: int, 
+                stop_event: threading.Event) -> int:
+    logger = logging.getLogger(f"writer_{writer_id}")
+    writer_uploads = 0
+    
+    try:
+        while not stop_event.is_set():
+            if duration > 0 and (time.time() - start_time) >= duration:
+                break
+                
+            upload_number = get_next_upload_number()
+            remaining = 0
+            if duration > 0:
+                elapsed = time.time() - start_time
+                remaining = duration - elapsed
+                
+            upload_start_time = time.time()
+            mirroring_client.upload_data_file(
+                schema_name=schema_name, 
+                table_name=table_name, 
+                local_file_path=local_file_path
+            )
+            upload_duration = time.time() - upload_start_time
+            writer_uploads += 1
+            
+            logger.info(f"[{writer_id}/{total_writers-1}] Upload #{upload_number} completed in {upload_duration:.2f} seconds, remaining: {remaining:.1f} seconds.")
+            
+            if interval > 0 and not stop_event.is_set():
+                logger.info(f"[{writer_id}/{total_writers-1}] Waiting {interval} seconds before next upload...")
+                stop_event.wait(interval)
+                
+    except Exception as e:
+        logger.error(f"[{writer_id}/{total_writers-1}] Writer error: {e}")
+    
+    return writer_uploads
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Open Mirroring Benchmarker.")
     parser.add_argument("--landing-zone-fqdn", type=str, required=True, help="Landing Zone FQDN (e.g. 'https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/f0a2c69e-ad20-4cd1-b35b-409776de3d66/Files/LandingZone').")
@@ -25,15 +79,17 @@ def parse_args():
     parser.add_argument("--local-file-path", type=str, required=True, help="Path to the local parquet file to upload (e.g. 'C:\\path\\to\\file.parquet').")
     parser.add_argument("--interval", type=int, default=5, help="Interval in seconds between uploads when using --continuous (default: 5 seconds).")
     parser.add_argument("--duration", type=int, default=60, help="Duration in seconds for continuous mode (default: 60 seconds). Use 0 for infinite duration.")
+    parser.add_argument("--concurrent-writers", type=int, default=2, help="Number of concurrent writer threads (default: 2).")
     
     return parser.parse_args()
 
 def main():
+    global global_upload_count
+    
     args = parse_args()
     logger = logging.getLogger(__name__)
     
     credential = AzureCliCredential()
-    
     mirroringClient = OpenMirroringClient(
         credential=credential,
         host=args.landing_zone_fqdn,
@@ -44,40 +100,73 @@ def main():
     mirroringClient.create_table(schema_name=args.schema_name, table_name=args.table_name, key_cols=args.key_cols)
     
     duration_text = f"for {args.duration} seconds" if args.duration > 0 else "indefinitely"
-    logger.info(f"Starting continuous upload mode with {args.interval} second intervals, running {duration_text}. Press Ctrl+C to stop.")
+    logger.info(f"Starting concurrent upload mode with {args.concurrent_writers} writers, {args.interval} second intervals, running {duration_text}. Press Ctrl+C to stop.")
     
-    upload_count = 0
     start_time = time.time()
+    stop_event = threading.Event()
+
+    mirroring_clients = []
+    for i in range(args.concurrent_writers):
+        thread_logger = logging.getLogger(f"writer_{i}")
+        thread_logger.setLevel(logging.INFO)
+        thread_client = OpenMirroringClient(
+            credential=credential,
+            host=args.landing_zone_fqdn,
+            logger=thread_logger
+        )
+        mirroring_clients.append(thread_client)
     
     try:
-        while (args.duration == 0 or (time.time() - start_time) < args.duration):
-            upload_count += 1
+        with ThreadPoolExecutor(max_workers=args.concurrent_writers, thread_name_prefix="Writer") as executor:
+            futures = []
+            for writer_id in range(args.concurrent_writers):
+                future = executor.submit(
+                    writer_task,
+                    writer_id=writer_id,
+                    total_writers=args.concurrent_writers,
+                    mirroring_client=mirroring_clients[writer_id],
+                    schema_name=args.schema_name,
+                    table_name=args.table_name,
+                    local_file_path=args.local_file_path,
+                    start_time=start_time,
+                    duration=args.duration,
+                    interval=args.interval,
+                    stop_event=stop_event
+                )
+                futures.append(future)
             
-            remaining = 0
-            if args.duration > 0:
-                elapsed = time.time() - start_time
-                remaining = args.duration - elapsed
+            try:
+                if args.duration > 0:
+                    time.sleep(args.duration)
+                    stop_event.set()
+                    logger.info("Duration reached, stopping all writers...")
+                else:
+                    while not stop_event.is_set():
+                        time.sleep(1)
+                        
+            except KeyboardInterrupt:
+                logger.info("\nInterrupt received, stopping all writers...")
+                stop_event.set()
             
-            upload_start_time = time.time()
-            mirroringClient.upload_data_file(schema_name=args.schema_name, table_name=args.table_name, local_file_path=args.local_file_path)
-            upload_duration = time.time() - upload_start_time
-
-            logger.info(f"Upload #{upload_count} completed in {upload_duration:.2f} seconds, remaining: {remaining:.1f} seconds.")
-
-            if args.interval > 0:
-                logger.info(f"Waiting {args.interval} seconds before next upload...")
-                time.sleep(args.interval)
-
-    except KeyboardInterrupt:
-        logger.info(f"\nUpload interrupted. Total uploads completed: {upload_count}")
+            total_writer_uploads = 0
+            for i, future in enumerate(futures):
+                try:
+                    writer_uploads = future.result(timeout=10)
+                    total_writer_uploads += writer_uploads
+                    logger.info(f"Writer {i} completed {writer_uploads} uploads")
+                except Exception as e:
+                    logger.error(f"Writer {i} failed: {e}")
+    
+    except Exception as e:
+        logger.error(f"Error in main execution: {e}")
+        stop_event.set()
     
     elapsed_time = time.time() - start_time
-    logger.info(f"Continuous mode completed. Total uploads: {upload_count}, Total time: {elapsed_time:.1f} seconds")
-
+    logger.info(f"Concurrent mode completed. Total uploads: {global_upload_count}, Total time: {elapsed_time:.1f} seconds")
+    logger.info(f"Upload rate: {global_upload_count / elapsed_time:.2f} uploads/second")
     logger.info(f"Mirrored database status: {mirroringClient.get_mirrored_database_status()}")
-    logger.info(f"All table status: {mirroringClient.get_table_status()}")
+    logger.info(f"All table status retrieved successfully: {mirroringClient.get_table_status()}")
     logger.info(f"Status for table '{args.schema_name}.{args.table_name}': {mirroringClient.get_table_status(schema_name=args.schema_name, table_name=args.table_name)}")
-    
 
 if __name__ == "__main__":
     main()
