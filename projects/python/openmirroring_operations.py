@@ -184,19 +184,24 @@ class OpenMirroringClient:
             if not directory_client.exists():
                 raise FileNotFoundError(f"Folder '{folder_path}' not found.")
 
+            temp_directory_client = file_system_client.get_directory_client("_Temp")
+            if not temp_directory_client.exists():
+                temp_directory_client.create_directory()
+                self.logger.debug("Created _Temp directory in LandingZone")
+
             temp_file_name = f"_temp_{uuid.uuid4()}.parquet"
-            file_client = directory_client.create_file(temp_file_name)
+            temp_file_client = temp_directory_client.create_file(temp_file_name)
             with open(local_file_path, "rb") as file_data:
                 file_contents = file_data.read()
-                file_client.append_data(data=file_contents, offset=0, length=len(file_contents))
-                file_client.flush_data(len(file_contents))
+                temp_file_client.append_data(data=file_contents, offset=0, length=len(file_contents))
+                temp_file_client.flush_data(len(file_contents))
 
             self.logger.debug(f"File uploaded successfully as '{temp_file_name}'.")
 
             for attempt in range(retry_on_conflict):
                 try:
                     next_file_name = self.get_next_file_name(schema_name, table_name)
-                    rename_success = self.rename_file(f"LandingZone/{folder_path}", temp_file_name, next_file_name)
+                    rename_success = self.rename_file("LandingZone/_Temp", temp_file_name, f"LandingZone/{folder_path}", next_file_name)
 
                     if rename_success:
                         self.logger.debug(f"File renamed successfully to '{next_file_name}' on attempt {attempt + 1}.")
@@ -214,16 +219,16 @@ class OpenMirroringClient:
                         continue
                     else:
                         try:
-                            temp_file_client = directory_client.get_file_client(temp_file_name)
-                            temp_file_client.delete_file()
+                            cleanup_temp_file_client = temp_directory_client.get_file_client(temp_file_name)
+                            cleanup_temp_file_client.delete_file()
                             self.logger.warning(f"Cleaned up temp file '{temp_file_name}' after failed rename attempts.")
                         except:
                             pass
                         raise
 
             try:
-                temp_file_client = directory_client.get_file_client(temp_file_name)
-                temp_file_client.delete_file()
+                cleanup_temp_file_client = temp_directory_client.get_file_client(temp_file_name)
+                cleanup_temp_file_client.delete_file()
                 self.logger.warning(f"Cleaned up temp file '{temp_file_name}' after exhausting retry attempts.")
             except:
                 pass
@@ -233,18 +238,19 @@ class OpenMirroringClient:
         except Exception as e:
             raise Exception(f"Failed to upload data file: {e}")
 
-    def rename_file(self, folder_path: str, old_file_name: str, new_file_name: str) -> bool:
+    def rename_file(self, source_folder_path: str, old_file_name: str, dest_folder_path: str, new_file_name: str) -> bool:
         """
-        Renames a file using the REST API.
+        Renames/moves a file using the REST API from source folder to destination folder.
 
-        :param folder_path: The folder path containing the file.
+        :param source_folder_path: The source folder path containing the file.
         :param old_file_name: The current file name.
+        :param dest_folder_path: The destination folder path.
         :param new_file_name: The desired new file name.
         :return: True if rename was successful, False otherwise.
         """
         token = self.credential.get_token("https://storage.azure.com/.default").token
-        rename_url = f"{self.host}/{folder_path}/{new_file_name}"
-        source_path = f"{self.host}/{folder_path}/{old_file_name}"
+        rename_url = f"{self.host}/{dest_folder_path}/{new_file_name}"
+        source_path = f"{self.host}/{source_folder_path}/{old_file_name}"
         headers = {
             "Authorization": f"Bearer {token}",
             "x-ms-rename-source": source_path,
@@ -253,10 +259,10 @@ class OpenMirroringClient:
         response = requests.put(rename_url, headers=headers)
 
         if response.status_code in [200, 201]:
-            self.logger.debug(f"File renamed from {old_file_name} to {new_file_name} successfully.")
+            self.logger.debug(f"File moved from {source_folder_path}/{old_file_name} to {dest_folder_path}/{new_file_name} successfully.")
             return True
         else:
-            self.logger.debug(f"Failed to rename file. Status code: {response.status_code}, Error: {response.text}")
+            self.logger.debug(f"Failed to move file. Status code: {response.status_code}, Error: {response.text}")
             return False
 
     def get_mirrored_database_status(self) -> str:
