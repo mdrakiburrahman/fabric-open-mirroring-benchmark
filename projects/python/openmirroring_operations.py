@@ -7,6 +7,8 @@ import requests
 import json
 import os
 import logging
+import uuid
+import time
 
 class OpenMirroringClient:
     def __init__(self, credential: TokenCredential, host: str, logger: logging.Logger):
@@ -143,13 +145,14 @@ class OpenMirroringClient:
         except Exception as e:
             raise Exception(f"Failed to get next file name: {e}")
 
-    def upload_data_file(self, schema_name: str = None, table_name: str = "", local_file_path: str = ""):
+    def upload_data_file(self, schema_name: str = None, table_name: str = "", local_file_path: str = "", retry_on_conflict: int = 30):
         """
-        Uploads a file to OneLake storage.
+        Uploads a file to OneLake storage with support for concurrent writers.
 
         :param schema_name: Optional schema name.
         :param table_name: Name of the table.
         :param local_file_path: Path to the local file to be uploaded.
+        :param retry_on_conflict: Number of times to retry getting next file name and renaming (default: 30).
         """
         if not table_name:
             raise ValueError("table_name cannot be empty.")
@@ -165,8 +168,7 @@ class OpenMirroringClient:
             if not directory_client.exists():
                 raise FileNotFoundError(f"Folder '{folder_path}' not found.")
 
-            next_file_name = self.get_next_file_name(schema_name, table_name)
-            temp_file_name = f"_{next_file_name}"
+            temp_file_name = f"_temp_{uuid.uuid4()}.parquet"
             file_client = directory_client.create_file(temp_file_name)
             with open(local_file_path, "rb") as file_data:
                 file_contents = file_data.read()
@@ -174,13 +176,56 @@ class OpenMirroringClient:
                 file_client.flush_data(len(file_contents))
 
             self.logger.debug(f"File uploaded successfully as '{temp_file_name}'.")
-            self.rename_file(f"LandingZone/{folder_path}", temp_file_name, next_file_name)
-            self.logger.debug(f"File renamed successfully to '{next_file_name}'.")
+
+            for attempt in range(retry_on_conflict):
+                try:
+                    next_file_name = self.get_next_file_name(schema_name, table_name)
+                    rename_success = self.rename_file(f"LandingZone/{folder_path}", temp_file_name, next_file_name)
+                    
+                    if rename_success:
+                        self.logger.debug(f"File renamed successfully to '{next_file_name}' on attempt {attempt + 1}.")
+                        return
+                    else:
+                        if attempt < retry_on_conflict - 1:
+                            self.logger.debug(f"Rename attempt {attempt + 1} failed, retrying...")
+                            time.sleep(0.1 * (attempt + 1))
+                        continue
+                        
+                except Exception as e:
+                    if attempt < retry_on_conflict - 1:
+                        self.logger.debug(f"Error on rename attempt {attempt + 1}: {e}, retrying...")
+                        time.sleep(0.1 * (attempt + 1))
+                        continue
+                    else:
+                        try:
+                            temp_file_client = directory_client.get_file_client(temp_file_name)
+                            temp_file_client.delete_file()
+                            self.logger.debug(f"Cleaned up temp file '{temp_file_name}' after failed rename attempts.")
+                        except:
+                            pass
+                        raise
+            
+            try:
+                temp_file_client = directory_client.get_file_client(temp_file_name)
+                temp_file_client.delete_file()
+                self.logger.debug(f"Cleaned up temp file '{temp_file_name}' after exhausting retry attempts.")
+            except:
+                pass
+            
+            raise Exception(f"Failed to rename file after {retry_on_conflict} attempts. Concurrent write conflict.")
 
         except Exception as e:
             raise Exception(f"Failed to upload data file: {e}")
         
-    def rename_file(self, folder_path: str, old_file_name: str, new_file_name: str):
+    def rename_file(self, folder_path: str, old_file_name: str, new_file_name: str) -> bool:
+        """
+        Renames a file using the REST API.
+        
+        :param folder_path: The folder path containing the file.
+        :param old_file_name: The current file name.
+        :param new_file_name: The desired new file name.
+        :return: True if rename was successful, False otherwise.
+        """
         token = self.credential.get_token("https://storage.azure.com/.default").token
         rename_url = f"{self.host}/{folder_path}/{new_file_name}"
         source_path = f"{self.host}/{folder_path}/{old_file_name}"
@@ -193,8 +238,10 @@ class OpenMirroringClient:
 
         if response.status_code in [200, 201]:
             self.logger.debug(f"File renamed from {old_file_name} to {new_file_name} successfully.")
+            return True
         else:
-            self.logger.error(f"Failed to rename file. Status code: {response.status_code}, Error: {response.text}")
+            self.logger.debug(f"Failed to rename file. Status code: {response.status_code}, Error: {response.text}")
+            return False
 
     def get_mirrored_database_status(self) -> str:
         """
