@@ -2,13 +2,13 @@
 # Licensed under the MIT License.
 
 import argparse
+import duckdb
 import logging
 import pandas as pd
-from tabulate import tabulate
-import duckdb
 
 from azure.identity import AzureCliCredential
 from openmirroring_operations import OpenMirroringClient
+from tabulate import tabulate
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -118,6 +118,20 @@ def main():
     except Exception as e:
         logger.warning(f"Could not get latest Tables parquet file: {e}")
 
+    latest_delta_committed_file = None
+    latest_delta_committed_file_last_modified = None
+    latest_delta_committed_file_landing_zone_max_timestamp = None
+
+    try:
+        latest_delta_committed_file = mirroring_client.get_latest_delta_committed_file(schema_name=args.schema_name, table_name=args.table_name)
+        delta_file_path = f"{args.schema_name}/{args.table_name}/{latest_delta_committed_file}" if args.schema_name else f"{args.table_name}/{latest_delta_committed_file}"
+        latest_delta_committed_file_last_modified = mirroring_client.get_parquet_file_last_modified(delta_file_path, file_system="Tables")
+        delta_full_path = f"Tables/{args.schema_name}/{args.table_name}/{latest_delta_committed_file}" if args.schema_name else f"Tables/{args.table_name}/{latest_delta_committed_file}"
+        latest_delta_committed_file_landing_zone_max_timestamp = get_max_writer_timestamp(args.host_root_fqdn, delta_full_path, logger)
+
+    except Exception as e:
+        logger.warning(f"Could not get Delta table metrics: {e}")
+
     landing_zone_size_mb = bytes_to_mb(landing_zone_size_bytes)
     tables_size_mb = bytes_to_mb(tables_size_bytes)
     landing_zone_last_modified = None
@@ -153,21 +167,27 @@ def main():
             "latest_parquet_file_landing_zone_size_mb", 
             "latest_parquet_file_tables_size_mb", 
             "latest_parquet_file_landing_zone_name", 
-            "latest_parquet_file_tables_name", 
+            "latest_parquet_file_tables_name",
+            "latest_delta_committed_file_name",
             "latest_parquet_file_landing_zone_last_modified", 
             "latest_parquet_file_tables_last_modified",
+            "latest_delta_committed_file_last_modified",
             "latest_parquet_file_landing_zone_max_timestamp", 
-            "latest_parquet_file_tables_max_timestamp"
+            "latest_parquet_file_tables_max_timestamp",
+            "latest_delta_committed_file_landing_zone_max_timestamp"
         ], 
         "metric_value": [
             landing_zone_size_mb, 
             tables_size_mb, 
             latest_landing_zone_file or "Not found", 
             latest_tables_file or "Not found", 
+            latest_delta_committed_file,
             str(landing_zone_last_modified) if landing_zone_last_modified else "Not found", 
             str(tables_last_modified) if tables_last_modified else "Not found",
+            latest_delta_committed_file_last_modified or "Not found",
             landing_zone_max_timestamp or "Not found", 
-            tables_max_timestamp or "Not found"
+            tables_max_timestamp or "Not found",
+            latest_delta_committed_file_landing_zone_max_timestamp or "Not found"
         ]
     }
     # fmt: on

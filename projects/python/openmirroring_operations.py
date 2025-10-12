@@ -1,9 +1,6 @@
 ﻿# Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 
-from azure.storage.filedatalake import DataLakeServiceClient
-from azure.core.credentials import TokenCredential
-
 import requests
 import json
 import os
@@ -11,6 +8,11 @@ import logging
 import uuid
 import re
 import time
+
+from azure.core.credentials import TokenCredential
+from azure.storage.filedatalake import DataLakeServiceClient
+from deltalake import DeltaTable
+from typing import List, Dict, Any
 
 
 class OpenMirroringClient:
@@ -443,3 +445,106 @@ class OpenMirroringClient:
 
         except Exception as e:
             raise Exception(f"Failed to get file last modified timestamp: {e}")
+
+    def get_delta_table_files_and_metadata(self, schema_name: str = None, table_name: str = "") -> List[Dict[str, Any]]:
+        """
+        Returns the Delta table files and metadata from the transaction log.
+
+        :param schema_name: Optional schema name.
+        :param table_name: Name of the table.
+        :return: List of dictionaries containing file information and metadata.
+        :raises Exception: If the Delta table doesn't exist or cannot be accessed.
+        """
+        if not table_name:
+            raise ValueError("table_name cannot be empty.")
+
+        table_path = f"Tables/{schema_name}/{table_name}" if schema_name else f"Tables/{table_name}"
+
+        try:
+            host_parts = self.host.replace("https://", "").split("/")
+            domain = host_parts[0]
+            container_id = host_parts[1]
+            lakehouse_id = host_parts[2]
+
+            delta_table_url = f"abfss://{container_id}@{domain}/{lakehouse_id}/{table_path}"
+            self.logger.debug(f"Accessing Delta table at: {delta_table_url}")
+
+            storage_options = {"token": self.credential.get_token("https://storage.azure.com/.default").token}
+            dt = DeltaTable(delta_table_url, storage_options=storage_options)
+            files = dt.files()
+            metadata = dt.metadata()
+            schema = dt.schema()
+            version = dt.version()
+            result = []
+
+            for file_path in files:
+                file_info = {"file_path": file_path, "table_version": version, "partition_columns": metadata.partition_columns if metadata else [], "created_time": str(metadata.created_time) if metadata and metadata.created_time else None, "schema_string": str(schema) if schema else None}
+                result.append(file_info)
+
+            self.logger.debug(f"Found {len(result)} files in Delta table '{table_path}' at version {version}")
+
+            return result
+
+        except Exception as e:
+            raise Exception(f"Failed to get Delta table files and metadata: {e}")
+
+    def get_latest_delta_committed_file(self, schema_name: str = None, table_name: str = "") -> str:
+        """
+        Returns the name of the latest committed parquet file in the Delta table based on Delta created_time metadata.
+
+        :param schema_name: Optional schema name.
+        :param table_name: Name of the table.
+        :return: The name of the latest Delta committed parquet file.
+        :raises Exception: If no Delta files are found or if the table doesn't exist.
+        """
+        if not table_name:
+            raise ValueError("table_name cannot be empty.")
+
+        try:
+            delta_files_metadata = self.get_delta_table_files_and_metadata(schema_name=schema_name, table_name=table_name)
+
+            if not delta_files_metadata:
+                raise FileNotFoundError(f"No Delta committed files found for table '{table_name}' in schema '{schema_name}'.")
+
+            # Find the file with the latest created_time from Delta metadata
+            latest_file = max(delta_files_metadata, key=lambda x: x.get("created_time", "") if x.get("created_time") else "")
+
+            latest_file_path = latest_file.get("file_path", "")
+            if not latest_file_path:
+                raise FileNotFoundError(f"Could not determine latest Delta committed file for table '{table_name}' in schema '{schema_name}'.")
+
+            self.logger.debug(f"Latest Delta committed file: {latest_file_path} (created: {latest_file.get('created_time', 'N/A')})")
+            return latest_file_path
+
+        except Exception as e:
+            raise Exception(f"Failed to get latest Delta committed file: {e}")
+
+    def get_delta_committed_file_created_time(self, schema_name: str = None, table_name: str = ""):
+        """
+        Returns the created_time from Delta metadata of the latest committed Delta parquet file.
+
+        :param schema_name: Optional schema name.
+        :param table_name: Name of the table.
+        :return: The created_time as a string from Delta metadata.
+        :raises Exception: If the Delta table doesn't exist or cannot be accessed.
+        """
+        if not table_name:
+            raise ValueError("table_name cannot be empty.")
+
+        try:
+            delta_files_metadata = self.get_delta_table_files_and_metadata(schema_name=schema_name, table_name=table_name)
+
+            if not delta_files_metadata:
+                raise FileNotFoundError(f"No Delta committed files found for table '{table_name}' in schema '{schema_name}'.")
+
+            latest_file = max(delta_files_metadata, key=lambda x: x.get("created_time", "") if x.get("created_time") else "")
+
+            created_time = latest_file.get("created_time", None)
+            if not created_time:
+                raise FileNotFoundError(f"Could not get created_time for latest Delta committed file for table '{table_name}' in schema '{schema_name}'.")
+
+            self.logger.debug(f"Latest Delta committed file created_time: {created_time}")
+            return created_time
+
+        except Exception as e:
+            raise Exception(f"Failed to get Delta committed file created_time: {e}")
