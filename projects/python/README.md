@@ -34,5 +34,6 @@ python write.py `
   --interval 0 `
   --duration 30 `
   --concurrent-writers 16 `
-  --num-rows 500000
+  --num-rows 500000 `
+  --timeout 120
 ```

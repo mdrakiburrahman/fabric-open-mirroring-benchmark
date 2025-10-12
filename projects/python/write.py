@@ -45,11 +45,13 @@ def generate_parquet_file(num_rows: int = 100) -> str:
     sql_query = f"""
     COPY (
         SELECT 
+            NOW() AT TIME ZONE 'UTC' AS WriterTimestamp,
             'E' || LPAD(CAST((RANDOM() * 999 + 1)::INT AS VARCHAR), 3, '0') AS EmployeeID,
             CASE 
                 WHEN RANDOM() < 0.25 THEN 'Redmond'
                 WHEN RANDOM() < 0.50 THEN 'Seattle'
                 WHEN RANDOM() < 0.75 THEN 'Bellevue'
+                WHEN RANDOM() < 0.90 THEN 'Toronto'
                 ELSE 'Kirkland'
             END AS EmployeeLocation,
             0 AS __rowMarker__
@@ -128,6 +130,7 @@ def parse_args():
     parser.add_argument("--duration", type=int, default=60, help="Duration in seconds for continuous mode (default: 60 seconds). Use 0 for infinite duration.")
     parser.add_argument("--concurrent-writers", type=int, default=2, help="Number of concurrent writer threads (default: 2).")
     parser.add_argument("--num-rows", type=int, default=100, help="Number of rows to generate in each parquet file (default: 100).")
+    parser.add_argument("--timeout", type=int, default=60, help="Timeout in seconds for waiting for worker threads to complete (default: 60).")
 
     return parser.parse_args()
 
@@ -192,7 +195,7 @@ def main():
             total_writer_uploads = 0
             for i, future in enumerate(futures):
                 try:
-                    writer_uploads = future.result(timeout=10)
+                    writer_uploads = future.result(timeout=args.timeout)
                     total_writer_uploads += writer_uploads
                     logger.info(f"Writer {i} completed {writer_uploads} uploads")
                 except Exception as e:

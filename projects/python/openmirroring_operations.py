@@ -184,10 +184,11 @@ class OpenMirroringClient:
             if not directory_client.exists():
                 raise FileNotFoundError(f"Folder '{folder_path}' not found.")
 
-            temp_directory_client = file_system_client.get_directory_client("_Temp")
+            temp_directory_path = f"{folder_path}/_Temp"
+            temp_directory_client = file_system_client.get_directory_client(temp_directory_path)
             if not temp_directory_client.exists():
                 temp_directory_client.create_directory()
-                self.logger.debug("Created _Temp directory in LandingZone")
+                self.logger.debug(f"Created _Temp directory in {folder_path}")
 
             temp_file_name = f"_temp_{uuid.uuid4()}.parquet"
             temp_file_client = temp_directory_client.create_file(temp_file_name)
@@ -201,7 +202,7 @@ class OpenMirroringClient:
             for attempt in range(retry_on_conflict):
                 try:
                     next_file_name = self.get_next_file_name(schema_name, table_name)
-                    rename_success = self.rename_file("LandingZone/_Temp", temp_file_name, f"LandingZone/{folder_path}", next_file_name)
+                    rename_success = self.rename_file(f"LandingZone/{temp_directory_path}", temp_file_name, f"LandingZone/{folder_path}", next_file_name)
 
                     if rename_success:
                         self.logger.debug(f"File renamed successfully to '{next_file_name}' on attempt {attempt + 1}.")
