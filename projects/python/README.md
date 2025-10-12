@@ -32,10 +32,10 @@ python write.py `
   --table-name "employees" `
   --key-cols "EmployeeID" `
   --interval 0 `
-  --duration 300 `
+  --duration 3000 `
   --concurrent-writers 16 `
-  --num-rows 50000000 `
-  --timeout 90
+  --num-rows 625000 `
+  --timeout 60
 ```
 
 In SQL Endpoint, get the lag via:
@@ -53,6 +53,7 @@ MirroredDatabaseTableExecutionLogs
 | where SourceSchemaName == 'microsoft'
 | where SourceTableName == 'employees'
 | order by Timestamp desc 
-| project Timestamp, OperationName, OperationStartTime, OperationEndTime, ProcessedRows, ProcessedBytes, ReplicatorBatchLatency, ErrorType, ErrorMessage
+| extend SecondsAgo = datetime_diff('second', now(), Timestamp)
+| project Timestamp, SecondsAgo, OperationName, OperationStartTime, OperationEndTime, ProcessedRows, ProcessedBytes, ReplicatorBatchLatency, ErrorType, ErrorMessage
 | take 100
 ```
