@@ -27,13 +27,30 @@ Run:
 
 ```powershell
 python write.py `
-  --landing-zone-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/f0a2c69e-ad20-4cd1-b35b-409776de3d66/Files/LandingZone" `
+  --landing-zone-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/83185a57-3b3c-4802-8e19-94fc046e5d4a/Files/LandingZone" `
   --schema-name "microsoft" `
   --table-name "employees" `
   --key-cols "EmployeeID" `
   --interval 0 `
-  --duration 30 `
+  --duration 300 `
   --concurrent-writers 16 `
-  --num-rows 500000 `
-  --timeout 120
+  --num-rows 50000000 `
+  --timeout 90
+```
+
+In SQL Endpoint, get the lag via:
+
+```sql
+SELECT MIN(DATEDIFF(SECOND, [WriterTimestamp], SYSUTCDATETIME())) AS LastWriteAgoInSeconds
+FROM [open_mirroring_benchmark_1].[microsoft].[employees];
+```
+
+And in the Monitoring KQL database, get errors via:
+
+```kql
+MirroredDatabaseTableExecutionLogs
+| where ItemName == 'open_mirroring_benchmark_1'
+| order by Timestamp desc 
+| project Timestamp, OperationName, OperationStartTime, OperationEndTime, MirroringSourceType, SourceSchemaName, SourceTableName, ProcessedRows, ProcessedBytes, ReplicatorBatchLatency, ErrorType, ErrorMessage
+| take 100
 ```
