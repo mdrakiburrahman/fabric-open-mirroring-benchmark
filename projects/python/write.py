@@ -3,6 +3,7 @@
 
 import argparse
 import duckdb
+import json
 import logging
 import os
 import pandas as pd
@@ -282,18 +283,46 @@ def main():
     elapsed_time = time.time() - start_time
 
     metrics = calculate_metrics(start_time, elapsed_time)
+
+    mirrored_db_status_raw = mirroringClient.get_mirrored_database_status()
+    table_status_raw = mirroringClient.get_table_status(schema_name=args.schema_name, table_name=args.table_name)
+
+    mirrored_db_status = json.loads(mirrored_db_status_raw)
+    table_status = json.loads(table_status_raw)
+    first_table_data = table_status["tables"][0]
+
     # fmt: off
+    first_table = {
+        "table_id": first_table_data.get("id", ""),
+        "table_status": first_table_data.get("status", ""),
+        "table_error_code": first_table_data.get("errorCode", ""),
+        "table_error_message": first_table_data.get("errorMessage", ""),
+        "table_normalized_name": first_table_data.get("normalizedTableName", ""),
+        "table_source_table_name": first_table_data.get("sourceTableName", ""),
+        "table_source_schema_name": first_table_data.get("sourceSchemaName", ""),
+        "table_source_object_type": first_table_data.get("sourceObjectType", ""),
+    }
+    metrics_data = first_table_data.get("metrics", {})
+    first_table.update({
+        "table_processed_row_count": metrics_data.get("processedRowCount", 0),
+        "table_processed_byte": metrics_data.get("processedByte", 0),
+        "table_last_source_commit_time_utc": metrics_data.get("lastSourceCommitTimeUtc", ""),
+        "table_last_sync_time_utc": metrics_data.get("lastSyncTimeUtc", ""),
+    })
     metrics.update({
-        "all_table_status": str(mirroringClient.get_table_status()), 
         "concurrent_writers": args.concurrent_writers, 
         "duration_seconds": args.duration, 
         "interval_seconds": args.interval, 
-        "mirrored_database_status": str(mirroringClient.get_mirrored_database_status()), 
+        "mirrored_database_status": mirrored_db_status.get("status", ""),
+        "mirrored_database_error_code": mirrored_db_status.get("errorCode", ""),
+        "mirrored_database_error_message": mirrored_db_status.get("errorMessage", ""),
+        "mirrored_database_last_heartbeat_time": mirrored_db_status.get("lastHeartbeatTime", ""),
         "num_rows_per_upload": args.num_rows,
         "schema_name": args.schema_name, 
-        "table_name": args.table_name, 
-        "specific_table_status": str(mirroringClient.get_table_status(schema_name=args.schema_name, table_name=args.table_name)), 
+        "table_name": args.table_name,
     })
+    
+    metrics.update(first_table)
     metrics_data = {"metric_key": list(metrics.keys()), "metric_value": list(metrics.values())}
     # fmt: on
 
