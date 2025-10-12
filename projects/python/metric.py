@@ -206,11 +206,10 @@ def main():
         tables_full_path = f"Tables/{args.schema_name}/{args.table_name}/{latest_tables_file}" if args.schema_name else f"Tables/{args.table_name}/{latest_tables_file}"
         tables_max_timestamp = get_max_writer_timestamp(args.host_root_fqdn, tables_full_path, logger)
 
-    # Calculate lag metrics
-    lag_landing_zone_to_tables = calculate_lag_seconds(landing_zone_last_modified, tables_last_modified)
-    lag_landing_zone_to_delta = calculate_lag_seconds(landing_zone_last_modified, latest_delta_committed_file_last_modified)
-    lag_max_timestamp_landing_zone_to_tables = calculate_lag_seconds(landing_zone_max_timestamp, tables_max_timestamp)
-    lag_max_timestamp_landing_zone_to_delta = calculate_lag_seconds(landing_zone_max_timestamp, latest_delta_committed_file_landing_zone_max_timestamp)
+    lag_landing_zone_to_tables = abs(calculate_lag_seconds(landing_zone_last_modified, tables_last_modified)) if calculate_lag_seconds(landing_zone_last_modified, tables_last_modified) is not None else None
+    lag_landing_zone_to_delta = abs(calculate_lag_seconds(landing_zone_last_modified, latest_delta_committed_file_last_modified)) if calculate_lag_seconds(landing_zone_last_modified, latest_delta_committed_file_last_modified) is not None else None
+    lag_max_timestamp_landing_zone_to_tables = abs(calculate_lag_seconds(landing_zone_max_timestamp, tables_max_timestamp)) if calculate_lag_seconds(landing_zone_max_timestamp, tables_max_timestamp) is not None else None
+    lag_max_timestamp_landing_zone_to_delta = abs(calculate_lag_seconds(landing_zone_max_timestamp, latest_delta_committed_file_landing_zone_max_timestamp)) if calculate_lag_seconds(landing_zone_max_timestamp, latest_delta_committed_file_landing_zone_max_timestamp) is not None else None
 
     # fmt: off
     metrics_data = {

@@ -8,6 +8,7 @@ import logging
 import uuid
 import re
 import time
+from datetime import datetime, timedelta
 
 from azure.core.credentials import TokenCredential
 from azure.storage.filedatalake import DataLakeServiceClient
@@ -21,6 +22,8 @@ class OpenMirroringClient:
         self.host = self.validate_path(host)
         self.logger = logger
         self.service_client = self._create_service_client()
+        self._cached_token = None
+        self._token_expires_at = None
 
     def validate_path(self, path: str) -> str:
         """
@@ -45,6 +48,32 @@ class OpenMirroringClient:
             return DataLakeServiceClient(account_url=self.host, credential=self.credential)
         except Exception as e:
             raise Exception(f"Failed to create DataLakeServiceClient: {e}")
+
+    def get_access_token(self) -> str:
+        """
+        Returns a memoized access token for Azure Storage API calls.
+        Automatically refreshes the token when it expires or is close to expiring.
+
+        :return: Valid access token string.
+        """
+        current_time = datetime.utcnow()
+        if self._cached_token is None or self._token_expires_at is None or current_time >= (self._token_expires_at - timedelta(minutes=5)):
+
+            try:
+                token_credential = self.credential.get_token("https://storage.azure.com/.default")
+                self._cached_token = token_credential.token
+                if hasattr(token_credential, "expires_on") and token_credential.expires_on:
+                    self._token_expires_at = datetime.utcfromtimestamp(token_credential.expires_on)
+                else:
+                    self._token_expires_at = current_time + timedelta(hours=1)
+
+                self.logger.debug(f"Token refreshed, expires at: {self._token_expires_at}")
+
+            except Exception as e:
+                self.logger.error(f"Failed to get access token: {e}")
+                raise Exception(f"Failed to get access token: {e}")
+
+        return self._cached_token
 
     def create_table(self, schema_name: str = None, table_name: str = "", key_cols: list = []):
         """
@@ -257,7 +286,7 @@ class OpenMirroringClient:
         :param new_file_name: The desired new file name.
         :return: True if rename was successful, False otherwise.
         """
-        token = self.credential.get_token("https://storage.azure.com/.default").token
+        token = self.get_access_token()
         rename_url = f"{self.host}/{dest_folder_path}/{new_file_name}"
         source_path = f"{self.host}/{source_folder_path}/{old_file_name}"
         headers = {
@@ -469,7 +498,7 @@ class OpenMirroringClient:
             delta_table_url = f"abfss://{container_id}@{domain}/{lakehouse_id}/{table_path}"
             self.logger.debug(f"Accessing Delta table at: {delta_table_url}")
 
-            storage_options = {"token": self.credential.get_token("https://storage.azure.com/.default").token}
+            storage_options = {"token": self.get_access_token()}
             dt = DeltaTable(delta_table_url, storage_options=storage_options)
             files = dt.files()
             metadata = dt.metadata()
