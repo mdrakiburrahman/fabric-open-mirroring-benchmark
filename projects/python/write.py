@@ -14,6 +14,7 @@ import uuid
 
 from azure.identity import AzureCliCredential
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from openmirroring_operations import OpenMirroringClient
 from tabulate import tabulate
 
@@ -30,6 +31,33 @@ global_upload_count = 0
 
 upload_stats = {}
 upload_stats_lock = threading.Lock()
+
+
+def calculate_time_ago_seconds(timestamp_str: str) -> float:
+    """
+    Calculate the number of seconds between the given timestamp and the current time.
+
+    :param timestamp_str: Timestamp string in ISO format
+    :return: Number of seconds ago, or None if calculation fails
+    """
+    try:
+        if not timestamp_str or timestamp_str == "":
+            return None
+
+        # Parse the timestamp
+        if isinstance(timestamp_str, str):
+            if timestamp_str.endswith("Z"):
+                timestamp_str = timestamp_str[:-1] + "+00:00"
+
+            timestamp_dt = datetime.fromisoformat(timestamp_str)
+        else:
+            return None
+        current_time = datetime.now(timestamp_dt.tzinfo) if timestamp_dt.tzinfo else datetime.utcnow()
+        diff = (current_time - timestamp_dt).total_seconds()
+        return round(diff, 2)
+
+    except Exception:
+        return None
 
 
 def get_next_upload_number() -> int:
@@ -293,12 +321,19 @@ def main():
         "table_source_object_type": first_table_data.get("sourceObjectType", ""),
     }
     metrics_data = first_table_data.get("metrics", {})
+    table_last_sync_time_utc = metrics_data.get("lastSyncTimeUtc", "")
+    mirrored_database_last_heartbeat_time = mirrored_db_status.get("lastHeartbeatTime", "")
+    table_last_sync_time_ago_seconds = calculate_time_ago_seconds(table_last_sync_time_utc)
+    mirrored_database_last_heartbeat_time_ago_seconds = calculate_time_ago_seconds(mirrored_database_last_heartbeat_time)
+    
     first_table.update({
         "table_processed_row_count": metrics_data.get("processedRowCount", 0),
         "table_processed_byte": metrics_data.get("processedByte", 0),
         "table_last_source_commit_time_utc": metrics_data.get("lastSourceCommitTimeUtc", ""),
-        "table_last_sync_time_utc": metrics_data.get("lastSyncTimeUtc", ""),
+        "table_last_sync_time_utc": table_last_sync_time_utc,
+        "table_last_sync_time_ago_seconds": table_last_sync_time_ago_seconds,
     })
+
     metrics.update({
         "concurrent_writers": args.concurrent_writers, 
         "duration_seconds": args.duration, 
@@ -306,7 +341,8 @@ def main():
         "mirrored_database_status": mirrored_db_status.get("status", ""),
         "mirrored_database_error_code": mirrored_db_status.get("errorCode", ""),
         "mirrored_database_error_message": mirrored_db_status.get("errorMessage", ""),
-        "mirrored_database_last_heartbeat_time": mirrored_db_status.get("lastHeartbeatTime", ""),
+        "mirrored_database_last_heartbeat_time": mirrored_database_last_heartbeat_time,
+        "mirrored_database_last_heartbeat_time_ago_seconds": mirrored_database_last_heartbeat_time_ago_seconds,
         "num_rows_per_upload": args.num_rows,
         "schema_name": args.schema_name, 
         "table_name": args.table_name,
