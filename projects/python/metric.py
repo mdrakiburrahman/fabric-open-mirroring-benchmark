@@ -59,11 +59,11 @@ def get_max_writer_timestamp(host: str, file_path: str, logger: logging.Logger):
             )
         """
         )
-        if file_path.endswith('.zstd.parquet'):
+        if file_path.endswith(".zstd.parquet"):
             query = f"SELECT MAX(WriterTimestamp AT TIME ZONE 'UTC') as max_timestamp FROM parquet_scan('{abfss_url}')"
         else:
             query = f"SELECT MAX(WriterTimestamp) as max_timestamp FROM parquet_scan('{abfss_url}')"
-        
+
         result = conn.execute(query).fetchone()
 
         if result and result[0]:
