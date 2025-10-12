@@ -368,7 +368,6 @@ class OpenMirroringClient:
         if not table_name:
             raise ValueError("table_name cannot be empty.")
 
-        # For Tables, use the full path as file system
         table_path = f"Tables/{schema_name}/{table_name}" if schema_name else f"Tables/{table_name}"
         return self.get_latest_parquet_file(table_path=table_path)
 
@@ -384,7 +383,6 @@ class OpenMirroringClient:
         if not table_name:
             raise ValueError("table_name cannot be empty.")
 
-        # For LandingZone, use the full path as file system
         table_path = f"Files/LandingZone/{schema_name}.schema/{table_name}" if schema_name else f"Files/LandingZone/{table_name}"
         return self.get_latest_parquet_file(table_path=table_path)
 
@@ -416,3 +414,32 @@ class OpenMirroringClient:
 
         except Exception as e:
             raise Exception(f"Failed to get file size: {e}")
+
+    def get_parquet_file_last_modified(self, file_path: str, file_system: str = "Files"):
+        """
+        Returns the ADLS LastModifiedTimestamp of a parquet file.
+
+        :param file_path: The full path to the parquet file (e.g., "Tables/microsoft/employees/file.parquet").
+        :param file_system: The file system to use (default: "Files").
+        :return: The LastModifiedTimestamp as a datetime object.
+        :raises Exception: If the file doesn't exist or cannot be accessed.
+        """
+        if not file_path:
+            raise ValueError("file_path cannot be empty.")
+
+        try:
+            file_system_client = self.service_client.get_file_system_client(file_system=file_system)
+            file_client = file_system_client.get_file_client(file_path)
+
+            if not file_client.exists():
+                raise FileNotFoundError(f"File '{file_path}' not found.")
+
+            file_properties = file_client.get_file_properties()
+            last_modified = file_properties.last_modified
+
+            self.logger.debug(f"File '{file_path}' last modified: {last_modified}")
+
+            return last_modified
+
+        except Exception as e:
+            raise Exception(f"Failed to get file last modified timestamp: {e}")
