@@ -53,7 +53,6 @@ def main():
 
     try:
         latest_landing_zone_file = mirroring_client.get_latest_parquet_file_landing_zone(schema_name=args.schema_name, table_name=args.table_name)
-        logger.info(f"Latest LandingZone parquet file: {latest_landing_zone_file}")
         landing_zone_file_path = f"LandingZone/{args.schema_name}.schema/{args.table_name}/{latest_landing_zone_file}"
         landing_zone_size_bytes = mirroring_client.get_parquet_file_size(landing_zone_file_path, file_system="Files")
 
@@ -62,8 +61,6 @@ def main():
 
     try:
         latest_tables_file = mirroring_client.get_latest_parquet_file_tables(schema_name=args.schema_name, table_name=args.table_name)
-        logger.info(f"Latest Tables parquet file: {latest_tables_file}")
-
         tables_file_path = f"{args.schema_name}/{args.table_name}/{latest_tables_file}" if args.schema_name else f"{args.table_name}/{latest_tables_file}"
         tables_size_bytes = mirroring_client.get_parquet_file_size(tables_file_path, file_system="Tables")
 
