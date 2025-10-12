@@ -5,6 +5,7 @@ import argparse
 import duckdb
 import logging
 import os
+import pandas as pd
 import tempfile
 import threading
 import time
@@ -13,6 +14,7 @@ import uuid
 from azure.identity import AzureCliCredential
 from concurrent.futures import ThreadPoolExecutor
 from openmirroring_operations import OpenMirroringClient
+from tabulate import tabulate
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -44,17 +46,28 @@ def record_successful_upload(writer_id: int, num_rows: int) -> None:
         upload_stats[timestamp] = (writer_id, num_rows)
 
 
-def calculate_average_rows_per_minute(start_time: float) -> None:
-    """Calculate and log the average rows per minute grouped by minute intervals."""
+def calculate_metrics(start_time: float, elapsed_time: float) -> dict:
+    """Calculate upload metrics and return as a dictionary."""
     global upload_stats
-    logger = logging.getLogger(__name__)
+
+    metrics = {}
 
     if not upload_stats:
-        logger.info("No upload statistics to analyze.")
-        return
+        # fmt: off
+        metrics.update({
+            "total_uploads_recorded": 0, 
+            "total_rows_uploaded": 0, 
+            "total_minutes": 0, 
+            "average_rows_per_minute": 0, 
+            "upload_rate_per_second": 0, 
+            "total_elapsed_time_seconds": elapsed_time
+        })
+        # fmt: on
+        return metrics
 
     minute_stats = {}
     total_rows = 0
+    writer_breakdown = {}
 
     with upload_stats_lock:
         for timestamp, (writer_id, num_rows) in upload_stats.items():
@@ -63,22 +76,33 @@ def calculate_average_rows_per_minute(start_time: float) -> None:
                 minute_stats[minutes_elapsed] = 0
             minute_stats[minutes_elapsed] += num_rows
             total_rows += num_rows
+            if writer_id not in writer_breakdown:
+                writer_breakdown[writer_id] = {"uploads": 0, "rows": 0}
+            writer_breakdown[writer_id]["uploads"] += 1
+            writer_breakdown[writer_id]["rows"] += num_rows
 
-    logger.info("=== Upload Statistics ===")
-    logger.info(f"Total uploads recorded: {len(upload_stats)}")
-    logger.info(f"Total rows uploaded: {total_rows}")
+    total_minutes = len(minute_stats) if minute_stats else 0
+    avg_rows_per_minute = total_rows / total_minutes if total_minutes > 0 else 0
+    upload_rate_per_second = global_upload_count / elapsed_time if elapsed_time > 0 else 0
 
-    if minute_stats:
-        logger.info("Rows per minute breakdown:")
-        for minute, rows in sorted(minute_stats.items()):
-            logger.info(f"  Minute {minute}: {rows} rows")
+    # fmt: off
+    metrics.update({
+        "total_uploads_recorded": len(upload_stats), 
+        "total_rows_uploaded": total_rows, 
+        "total_minutes": total_minutes, 
+        "average_rows_per_minute": round(avg_rows_per_minute, 2), 
+        "upload_rate_per_second": round(upload_rate_per_second, 2), 
+        "total_elapsed_time_seconds": round(elapsed_time, 1)
+    })
+    # fmt: on
 
-        total_minutes = len(minute_stats)
-        if total_minutes > 0:
-            avg_rows_per_minute = total_rows / total_minutes
-            logger.info(f"Average rows per minute: {avg_rows_per_minute:.2f}")
-        else:
-            logger.info("No complete minutes to calculate average.")
+    for minute, rows in sorted(minute_stats.items()):
+        metrics[f"minute_{minute}_rows"] = rows
+    for writer_id, stats in writer_breakdown.items():
+        metrics[f"writer_{writer_id}_uploads"] = stats["uploads"]
+        metrics[f"writer_{writer_id}_rows"] = stats["rows"]
+
+    return metrics
 
 
 def generate_parquet_file(num_rows: int = 100) -> str:
@@ -256,13 +280,27 @@ def main():
         stop_event.set()
 
     elapsed_time = time.time() - start_time
-    logger.info(f"Concurrent mode completed. Total uploads: {global_upload_count}, Total time: {elapsed_time:.1f} seconds")
-    logger.info(f"Upload rate: {global_upload_count / elapsed_time:.2f} uploads/second")
-    calculate_average_rows_per_minute(start_time)
 
-    logger.info(f"Mirrored database status: {mirroringClient.get_mirrored_database_status()}")
-    logger.info(f"All table status retrieved successfully: {mirroringClient.get_table_status()}")
-    logger.info(f"Status for table '{args.schema_name}.{args.table_name}': {mirroringClient.get_table_status(schema_name=args.schema_name, table_name=args.table_name)}")
+    metrics = calculate_metrics(start_time, elapsed_time)
+    # fmt: off
+    metrics.update({
+        "all_table_status": str(mirroringClient.get_table_status()), 
+        "concurrent_writers": args.concurrent_writers, 
+        "duration_seconds": args.duration, 
+        "interval_seconds": args.interval, 
+        "mirrored_database_status": str(mirroringClient.get_mirrored_database_status()), 
+        "num_rows_per_upload": args.num_rows,
+        "schema_name": args.schema_name, 
+        "table_name": args.table_name, 
+        "specific_table_status": str(mirroringClient.get_table_status(schema_name=args.schema_name, table_name=args.table_name)), 
+    })
+    metrics_data = {"metric_key": list(metrics.keys()), "metric_value": list(metrics.values())}
+    # fmt: on
+
+    df = pd.DataFrame(metrics_data)
+
+    logger.info(f"Upload benchmarking completed for table: {args.schema_name}.{args.table_name}")
+    logger.info(f"\n{tabulate(df, headers='keys', tablefmt='grid', showindex=False)}")
 
 
 if __name__ == "__main__":
