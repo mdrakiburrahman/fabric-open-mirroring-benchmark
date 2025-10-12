@@ -38,6 +38,16 @@ python write.py `
   --timeout 60
 ```
 
+Get metrics:
+
+```powershell
+python metric.py `
+  --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/83185a57-3b3c-4802-8e19-94fc046e5d4a" `
+  --schema-name "microsoft" `
+  --table-name "employees"
+```
+
+
 In SQL Endpoint, get the lag via:
 
 ```sql

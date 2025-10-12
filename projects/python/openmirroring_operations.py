@@ -322,3 +322,97 @@ class OpenMirroringClient:
 
         except Exception:
             raise Exception("No status of mirrored database has been found. Please check whether the mirrored database has been started properly.")
+
+    def get_latest_parquet_file(self, table_path: str, file_system: str = "Files") -> str:
+        """
+        Returns the name of the latest parquet file in the specified path based on ADLS LastModifiedTimestamp.
+
+        :param table_path: The full path to the table directory.
+        :param file_system: The file system to use (default: "Files").
+        :return: The name of the latest parquet file.
+        :raises Exception: If no parquet files are found or if the table path doesn't exist.
+        """
+        if not table_path:
+            raise ValueError("table_path cannot be empty.")
+
+        try:
+            file_system_client = self.service_client.get_file_system_client(file_system=table_path)
+            file_list = file_system_client.get_paths(recursive=False)
+            parquet_files = []
+
+            for file in file_list:
+                file_name = os.path.basename(file.name)
+                if not file.is_directory and file_name.endswith(".parquet") and not file_name.startswith("_"):
+                    parquet_files.append({"name": file_name, "last_modified": file.last_modified})
+
+            if not parquet_files:
+                raise FileNotFoundError(f"No parquet files found in '{table_path}'.")
+
+            latest_file = max(parquet_files, key=lambda x: x["last_modified"])
+            self.logger.debug(f"Latest parquet file in '{table_path}': {latest_file['name']} (modified: {latest_file['last_modified']})")
+
+            return latest_file["name"]
+
+        except Exception as e:
+            raise Exception(f"Failed to get latest parquet file: {e}")
+
+    def get_latest_parquet_file_tables(self, schema_name: str = None, table_name: str = "") -> str:
+        """
+        Returns the name of the latest parquet file in the Tables folder based on ADLS LastModifiedTimestamp.
+
+        :param schema_name: Optional schema name.
+        :param table_name: Name of the table.
+        :return: The name of the latest parquet file.
+        :raises Exception: If no parquet files are found or if the table path doesn't exist.
+        """
+        if not table_name:
+            raise ValueError("table_name cannot be empty.")
+
+        # For Tables, use the full path as file system
+        table_path = f"Tables/{schema_name}/{table_name}" if schema_name else f"Tables/{table_name}"
+        return self.get_latest_parquet_file(table_path=table_path)
+
+    def get_latest_parquet_file_landing_zone(self, schema_name: str = None, table_name: str = "") -> str:
+        """
+        Returns the name of the latest parquet file in the LandingZone folder based on ADLS LastModifiedTimestamp.
+
+        :param schema_name: Optional schema name.
+        :param table_name: Name of the table.
+        :return: The name of the latest parquet file.
+        :raises Exception: If no parquet files are found or if the table path doesn't exist.
+        """
+        if not table_name:
+            raise ValueError("table_name cannot be empty.")
+
+        # For LandingZone, use the full path as file system
+        table_path = f"Files/LandingZone/{schema_name}.schema/{table_name}" if schema_name else f"Files/LandingZone/{table_name}"
+        return self.get_latest_parquet_file(table_path=table_path)
+
+    def get_parquet_file_size(self, file_path: str, file_system: str = "Files") -> int:
+        """
+        Returns the size of a parquet file in bytes.
+
+        :param file_path: The full path to the parquet file (e.g., "Tables/microsoft/employees/file.parquet").
+        :param file_system: The file system to use (default: "Files").
+        :return: The file size in bytes as an integer.
+        :raises Exception: If the file doesn't exist or cannot be accessed.
+        """
+        if not file_path:
+            raise ValueError("file_path cannot be empty.")
+
+        try:
+            file_system_client = self.service_client.get_file_system_client(file_system=file_system)
+            file_client = file_system_client.get_file_client(file_path)
+
+            if not file_client.exists():
+                raise FileNotFoundError(f"File '{file_path}' not found.")
+
+            file_properties = file_client.get_file_properties()
+            file_size = file_properties.size
+
+            self.logger.debug(f"File '{file_path}' size: {file_size} bytes")
+
+            return file_size
+
+        except Exception as e:
+            raise Exception(f"Failed to get file size: {e}")
