@@ -32,7 +32,7 @@ python write.py `
   --table-name "employees" `
   --key-cols "EmployeeID" `
   --interval 0 `
-  --duration 3000 `
+  --duration 30 `
   --concurrent-writers 16 `
   --num-rows 625000 `
   --timeout 60
