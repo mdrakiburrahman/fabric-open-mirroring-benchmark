@@ -121,11 +121,13 @@ def main():
     latest_delta_committed_file = None
     latest_delta_committed_file_last_modified = None
     latest_delta_committed_file_landing_zone_max_timestamp = None
+    delta_size_bytes = 0
 
     try:
         latest_delta_committed_file = mirroring_client.get_latest_delta_committed_file(schema_name=args.schema_name, table_name=args.table_name)
         delta_file_path = f"{args.schema_name}/{args.table_name}/{latest_delta_committed_file}" if args.schema_name else f"{args.table_name}/{latest_delta_committed_file}"
         latest_delta_committed_file_last_modified = mirroring_client.get_parquet_file_last_modified(delta_file_path, file_system="Tables")
+        delta_size_bytes = mirroring_client.get_parquet_file_size(delta_file_path, file_system="Tables")
         delta_full_path = f"Tables/{args.schema_name}/{args.table_name}/{latest_delta_committed_file}" if args.schema_name else f"Tables/{args.table_name}/{latest_delta_committed_file}"
         latest_delta_committed_file_landing_zone_max_timestamp = get_max_writer_timestamp(args.host_root_fqdn, delta_full_path, logger)
 
@@ -134,6 +136,7 @@ def main():
 
     landing_zone_size_mb = bytes_to_mb(landing_zone_size_bytes)
     tables_size_mb = bytes_to_mb(tables_size_bytes)
+    delta_size_mb = bytes_to_mb(delta_size_bytes)
     landing_zone_last_modified = None
     tables_last_modified = None
     landing_zone_max_timestamp = None
@@ -165,7 +168,8 @@ def main():
     metrics_data = {
         "metric_key": [
             "latest_parquet_file_landing_zone_size_mb", 
-            "latest_parquet_file_tables_size_mb", 
+            "latest_parquet_file_tables_size_mb",
+            "latest_delta_committed_file_size_mb",
             "latest_parquet_file_landing_zone_name", 
             "latest_parquet_file_tables_name",
             "latest_delta_committed_file_name",
@@ -178,10 +182,11 @@ def main():
         ], 
         "metric_value": [
             landing_zone_size_mb, 
-            tables_size_mb, 
+            tables_size_mb,
+            delta_size_mb,
             latest_landing_zone_file or "Not found", 
             latest_tables_file or "Not found", 
-            latest_delta_committed_file,
+            latest_delta_committed_file or "Not found",
             str(landing_zone_last_modified) if landing_zone_last_modified else "Not found", 
             str(tables_last_modified) if tables_last_modified else "Not found",
             latest_delta_committed_file_last_modified or "Not found",
