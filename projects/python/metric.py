@@ -7,6 +7,7 @@ import logging
 import pandas as pd
 
 from azure.identity import AzureCliCredential
+from datetime import datetime
 from openmirroring_operations import OpenMirroringClient
 from tabulate import tabulate
 
@@ -27,6 +28,47 @@ def bytes_to_mb(bytes_value: int) -> float:
     :return: Size in megabytes (rounded to 2 decimal places)
     """
     return round(bytes_value / (1024 * 1024), 2)
+
+
+def calculate_lag_seconds(start_timestamp, end_timestamp):
+    """
+    Calculates lag in seconds between two timestamps.
+
+    :param start_timestamp: Earlier timestamp (string or datetime object)
+    :param end_timestamp: Later timestamp (string or datetime object)
+    :return: Lag in seconds (float), or None if calculation fails
+    """
+    try:
+        if start_timestamp is None or end_timestamp is None:
+            return None
+
+        if isinstance(start_timestamp, str):
+            if "." in start_timestamp and "+" in start_timestamp:
+                if start_timestamp.endswith("+00:00"):
+                    start_dt = datetime.fromisoformat(start_timestamp.replace("+00:00", "+00:00"))
+                else:
+                    start_dt = datetime.fromisoformat(start_timestamp)
+            else:
+                start_dt = datetime.fromisoformat(start_timestamp)
+        else:
+            start_dt = start_timestamp
+
+        if isinstance(end_timestamp, str):
+            if "." in end_timestamp and "+" in end_timestamp:
+                if end_timestamp.endswith("+00:00"):
+                    end_dt = datetime.fromisoformat(end_timestamp.replace("+00:00", "+00:00"))
+                else:
+                    end_dt = datetime.fromisoformat(end_timestamp)
+            else:
+                end_dt = datetime.fromisoformat(end_timestamp)
+        else:
+            end_dt = end_timestamp
+
+        diff = (end_dt - start_dt).total_seconds()
+        return round(diff, 2)
+
+    except Exception:
+        return None
 
 
 def get_max_writer_timestamp(host: str, file_path: str, logger: logging.Logger):
@@ -164,6 +206,12 @@ def main():
         tables_full_path = f"Tables/{args.schema_name}/{args.table_name}/{latest_tables_file}" if args.schema_name else f"Tables/{args.table_name}/{latest_tables_file}"
         tables_max_timestamp = get_max_writer_timestamp(args.host_root_fqdn, tables_full_path, logger)
 
+    # Calculate lag metrics
+    lag_landing_zone_to_tables = calculate_lag_seconds(landing_zone_last_modified, tables_last_modified)
+    lag_landing_zone_to_delta = calculate_lag_seconds(landing_zone_last_modified, latest_delta_committed_file_last_modified)
+    lag_max_timestamp_landing_zone_to_tables = calculate_lag_seconds(landing_zone_max_timestamp, tables_max_timestamp)
+    lag_max_timestamp_landing_zone_to_delta = calculate_lag_seconds(landing_zone_max_timestamp, latest_delta_committed_file_landing_zone_max_timestamp)
+
     # fmt: off
     metrics_data = {
         "metric_key": [
@@ -178,7 +226,11 @@ def main():
             "latest_delta_committed_file_last_modified",
             "latest_parquet_file_landing_zone_max_timestamp", 
             "latest_parquet_file_tables_max_timestamp",
-            "latest_delta_committed_file_landing_zone_max_timestamp"
+            "latest_delta_committed_file_landing_zone_max_timestamp",
+            "lag_seconds_parquet_file_landing_zone_to_parquet_file_table",
+            "lag_seconds_parquet_file_landing_zone_to_delta_committed_file",
+            "lag_seconds_max_timestamp_parquet_file_landing_zone_to_parquet_file_table",
+            "lag_seconds_max_timestamp_parquet_file_landing_zone_to_delta_committed_file"
         ], 
         "metric_value": [
             landing_zone_size_mb, 
@@ -192,7 +244,11 @@ def main():
             latest_delta_committed_file_last_modified or "Not found",
             landing_zone_max_timestamp or "Not found", 
             tables_max_timestamp or "Not found",
-            latest_delta_committed_file_landing_zone_max_timestamp or "Not found"
+            latest_delta_committed_file_landing_zone_max_timestamp or "Not found",
+            lag_landing_zone_to_tables if lag_landing_zone_to_tables is not None else "Not available",
+            lag_landing_zone_to_delta if lag_landing_zone_to_delta is not None else "Not available",
+            lag_max_timestamp_landing_zone_to_tables if lag_max_timestamp_landing_zone_to_tables is not None else "Not available",
+            lag_max_timestamp_landing_zone_to_delta if lag_max_timestamp_landing_zone_to_delta is not None else "Not available"
         ]
     }
     # fmt: on
