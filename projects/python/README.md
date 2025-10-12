@@ -50,7 +50,9 @@ And in the Monitoring KQL database, get errors via:
 ```kql
 MirroredDatabaseTableExecutionLogs
 | where ItemName == 'open_mirroring_benchmark_1'
+| where SourceSchemaName == 'microsoft'
+| where SourceTableName == 'employees'
 | order by Timestamp desc 
-| project Timestamp, OperationName, OperationStartTime, OperationEndTime, MirroringSourceType, SourceSchemaName, SourceTableName, ProcessedRows, ProcessedBytes, ReplicatorBatchLatency, ErrorType, ErrorMessage
+| project Timestamp, OperationName, OperationStartTime, OperationEndTime, ProcessedRows, ProcessedBytes, ReplicatorBatchLatency, ErrorType, ErrorMessage
 | take 100
 ```
