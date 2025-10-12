@@ -5,6 +5,7 @@ import argparse
 import logging
 import pandas as pd
 from tabulate import tabulate
+import duckdb
 
 from azure.identity import AzureCliCredential
 from openmirroring_operations import OpenMirroringClient
@@ -26,6 +27,51 @@ def bytes_to_mb(bytes_value: int) -> float:
     :return: Size in megabytes (rounded to 2 decimal places)
     """
     return round(bytes_value / (1024 * 1024), 2)
+
+
+def get_max_writer_timestamp(host: str, file_path: str, logger: logging.Logger):
+    """
+    Gets the MAX WriterTimestamp from a parquet file using DuckDB with Azure credentials.
+
+    :param host: The Azure host URL
+    :param file_path: The path to the parquet file
+    :param logger: Logger instance
+    :return: MAX WriterTimestamp as string, or None if error
+    """
+    try:
+        host_parts = host.replace('https://', '').split('/')
+        domain = host_parts[0]
+        container_id = host_parts[1]
+        lakehouse_id = host_parts[2]
+        abfss_url = f"abfss://{container_id}@{domain}/{lakehouse_id}/{file_path}"
+        
+        conn = duckdb.connect()
+        conn.execute("INSTALL azure")
+        conn.execute("LOAD azure")
+        conn.execute("SET azure_transport_option_type = 'default'")
+        conn.execute("""
+            CREATE SECRET (
+                TYPE AZURE,
+                PROVIDER CREDENTIAL_CHAIN,
+                CHAIN 'cli',
+                ACCOUNT_NAME 'msit-onelake'
+            )
+        """)
+        
+        query = f"SELECT MAX(WriterTimestamp) as max_timestamp FROM parquet_scan('{abfss_url}')"
+        result = conn.execute(query).fetchone()
+        
+        if result and result[0]:
+            return str(result[0])
+        else:
+            return None
+            
+    except Exception as e:
+        logger.warning(f"Could not get MAX WriterTimestamp from '{file_path}': {e}")
+        return None
+    finally:
+        if 'conn' in locals():
+            conn.close()
 
 
 def parse_args():
@@ -69,8 +115,18 @@ def main():
 
     landing_zone_size_mb = bytes_to_mb(landing_zone_size_bytes)
     tables_size_mb = bytes_to_mb(tables_size_bytes)
+    landing_zone_max_timestamp = None
+    tables_max_timestamp = None
 
-    metrics_data = {"metric_key": ["latest_parquet_file_landing_zone_size_mb", "latest_parquet_file_tables_size_mb", "latest_parquet_file_landing_zone_name", "latest_parquet_file_tables_name"], "metric_value": [landing_zone_size_mb, tables_size_mb, latest_landing_zone_file or "Not found", latest_tables_file or "Not found"]}
+    if latest_landing_zone_file:
+        landing_zone_full_path = f"Files/LandingZone/{args.schema_name}.schema/{args.table_name}/{latest_landing_zone_file}"
+        landing_zone_max_timestamp = get_max_writer_timestamp(args.host_root_fqdn, landing_zone_full_path, logger)
+
+    if latest_tables_file:
+        tables_full_path = f"Tables/{args.schema_name}/{args.table_name}/{latest_tables_file}" if args.schema_name else f"Tables/{args.table_name}/{latest_tables_file}"
+        tables_max_timestamp = get_max_writer_timestamp(args.host_root_fqdn, tables_full_path, logger)
+
+    metrics_data = {"metric_key": ["latest_parquet_file_landing_zone_size_mb", "latest_parquet_file_tables_size_mb", "latest_parquet_file_landing_zone_name", "latest_parquet_file_tables_name", "latest_parquet_file_landing_zone_max_timestamp", "latest_parquet_file_tables_max_timestamp"], "metric_value": [landing_zone_size_mb, tables_size_mb, latest_landing_zone_file or "Not found", latest_tables_file or "Not found", landing_zone_max_timestamp or "Not found", tables_max_timestamp or "Not found"]}
 
     df = pd.DataFrame(metrics_data)
 
