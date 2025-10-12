@@ -3,32 +3,38 @@
 
 from azure.storage.filedatalake import DataLakeServiceClient
 from azure.core.credentials import TokenCredential
+
 import requests
 import json
 import os
 import logging
 import uuid
+import re
 import time
 
 
 class OpenMirroringClient:
     def __init__(self, credential: TokenCredential, host: str, logger: logging.Logger):
         self.credential = credential
-        self.host = self._normalize_path(host)
+        self.host = self.validate_path(host)
         self.logger = logger
         self.service_client = self._create_service_client()
 
-    def _normalize_path(self, path: str) -> str:
+    def validate_path(self, path: str) -> str:
         """
-        Normalizes the given path by removing the 'LandingZone' segment if it ends with it.
+        Validates that the given path ends with a GUID and returns the cleaned path.
 
-        :param path: The original path.
-        :return: The normalized path.
+        :param path: The original path that should end with a GUID.
+        :return: The validated path with trailing slashes removed.
+        :raises ValueError: If the path doesn't end with a valid GUID format.
         """
-        if path.endswith("LandingZone"):
-            return path[: path.rfind("/LandingZone")]
-        elif path.endswith("LandingZone/"):
-            return path[: path.rfind("/LandingZone/")]
+        path = path.rstrip("/")
+        guid_pattern = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        path_segments = path.split("/")
+        last_segment = path_segments[-1] if path_segments else ""
+        if not re.match(guid_pattern, last_segment.lower()):
+            raise ValueError(f"Path must end with a valid GUID. Invalid path: {path}")
+
         return path
 
     def _create_service_client(self):
@@ -53,8 +59,8 @@ class OpenMirroringClient:
         folder_path = f"{schema_name}.schema/{table_name}" if schema_name else f"{table_name}"
 
         try:
-            file_system_client = self.service_client.get_file_system_client(file_system="LandingZone")
-            directory_client = file_system_client.get_directory_client(folder_path)
+            file_system_client = self.service_client.get_file_system_client(file_system="Files")
+            directory_client = file_system_client.get_directory_client(f"LandingZone/{folder_path}")
 
             metadata_file_client = directory_client.get_file_client("_metadata.json")
             if metadata_file_client.exists():
@@ -98,8 +104,8 @@ class OpenMirroringClient:
         folder_path = f"{schema_name}.schema/{table_name}" if schema_name else f"{table_name}"
 
         try:
-            file_system_client = self.service_client.get_file_system_client(file_system="LandingZone")
-            directory_client = file_system_client.get_directory_client(folder_path)
+            file_system_client = self.service_client.get_file_system_client(file_system="Files")
+            directory_client = file_system_client.get_directory_client(f"LandingZone/{folder_path}")
 
             if not directory_client.exists():
                 self.logger.warning(f"Folder '{folder_path}' not found.")
@@ -109,7 +115,7 @@ class OpenMirroringClient:
             self.logger.debug(f"Folder '{folder_path}' deleted successfully.")
 
             if remove_schema_folder and schema_name:
-                schema_folder_path = f"{schema_name}.schema"
+                schema_folder_path = f"LandingZone/{schema_name}.schema"
                 schema_directory_client = file_system_client.get_directory_client(schema_folder_path)
                 if schema_directory_client.exists():
                     schema_directory_client.delete_directory()
@@ -131,7 +137,7 @@ class OpenMirroringClient:
         if not table_name:
             raise ValueError("table_name cannot be empty.")
 
-        folder_path = f"LandingZone/{schema_name}.schema/{table_name}" if schema_name else f"LandingZone/{table_name}"
+        folder_path = f"Files/LandingZone/{schema_name}.schema/{table_name}" if schema_name else f"Files/LandingZone/{table_name}"
 
         try:
             file_system_client = self.service_client.get_file_system_client(file_system=folder_path)
@@ -178,13 +184,13 @@ class OpenMirroringClient:
         folder_path = f"{schema_name}.schema/{table_name}" if schema_name else f"{table_name}"
 
         try:
-            file_system_client = self.service_client.get_file_system_client(file_system="LandingZone")
-            directory_client = file_system_client.get_directory_client(folder_path)
+            file_system_client = self.service_client.get_file_system_client(file_system="Files")
+            directory_client = file_system_client.get_directory_client(f"LandingZone/{folder_path}")
 
             if not directory_client.exists():
                 raise FileNotFoundError(f"Folder '{folder_path}' not found.")
 
-            temp_directory_path = f"{folder_path}/_Temp"
+            temp_directory_path = f"LandingZone/{folder_path}/_Temp"
             temp_directory_client = file_system_client.get_directory_client(temp_directory_path)
             if not temp_directory_client.exists():
                 temp_directory_client.create_directory()
@@ -202,7 +208,7 @@ class OpenMirroringClient:
             for attempt in range(retry_on_conflict):
                 try:
                     next_file_name = self.get_next_file_name(schema_name, table_name)
-                    rename_success = self.rename_file(f"LandingZone/{temp_directory_path}", temp_file_name, f"LandingZone/{folder_path}", next_file_name)
+                    rename_success = self.rename_file(f"Files/{temp_directory_path}", temp_file_name, f"Files/LandingZone/{folder_path}", next_file_name)
 
                     if rename_success:
                         self.logger.debug(f"File renamed successfully to '{next_file_name}' on attempt {attempt + 1}.")
@@ -273,9 +279,9 @@ class OpenMirroringClient:
         :return: JSON string of the mirrored database status.
         :raises Exception: If the status file or path does not exist.
         """
-        file_system_client = self.service_client.get_file_system_client(file_system="Monitoring")
+        file_system_client = self.service_client.get_file_system_client(file_system="Files")
         try:
-            file_client = file_system_client.get_file_client("replicator.json")
+            file_client = file_system_client.get_file_client("Monitoring/replicator.json")
             if not file_client.exists():
                 raise Exception("No status of mirrored database has been found. Please check whether the mirrored database has been started properly.")
 
@@ -296,9 +302,9 @@ class OpenMirroringClient:
         :return: JSON string of the table status.
         :raises Exception: If the status file or path does not exist.
         """
-        file_system_client = self.service_client.get_file_system_client(file_system="Monitoring")
+        file_system_client = self.service_client.get_file_system_client(file_system="Files")
         try:
-            file_client = file_system_client.get_file_client("tables.json")
+            file_client = file_system_client.get_file_client("Monitoring/tables.json")
             if not file_client.exists():
                 raise Exception("No status of mirrored database has been found. Please check whether the mirrored database has been started properly.")
 

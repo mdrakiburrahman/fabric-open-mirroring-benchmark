@@ -122,7 +122,7 @@ def writer_task(
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Open Mirroring Benchmarker.")
-    parser.add_argument("--landing-zone-fqdn", type=str, required=True, help="Landing Zone FQDN (e.g. 'https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/f0a2c69e-ad20-4cd1-b35b-409776de3d66/Files/LandingZone').")
+    parser.add_argument("--host-root-fqdn", type=str, required=True, help="Host Root FQDN ending with GUID (e.g. 'https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/f0a2c69e-ad20-4cd1-b35b-409776de3d66').")
     parser.add_argument("--schema-name", type=str, required=True, help="Schema name for the table (e.g. 'microsoft').")
     parser.add_argument("--table-name", type=str, required=True, help="Table name (e.g. 'source_employees').")
     parser.add_argument("--key-cols", type=str, nargs="+", required=True, help="List of key column names (e.g. 'Column1' 'Column2').")
@@ -142,7 +142,7 @@ def main():
     logger = logging.getLogger(__name__)
 
     credential = AzureCliCredential()
-    mirroringClient = OpenMirroringClient(credential=credential, host=args.landing_zone_fqdn, logger=logger)
+    mirroringClient = OpenMirroringClient(credential=credential, host=args.host_root_fqdn, logger=logger)
 
     logger.info(f"Creating table '{args.table_name}' in schema '{args.schema_name}' with key columns: {args.key_cols}")
     mirroringClient.create_table(schema_name=args.schema_name, table_name=args.table_name, key_cols=args.key_cols)
@@ -157,7 +157,7 @@ def main():
     for i in range(args.concurrent_writers):
         thread_logger = logging.getLogger(f"writer_{i}")
         thread_logger.setLevel(logging.INFO)
-        thread_client = OpenMirroringClient(credential=credential, host=args.landing_zone_fqdn, logger=thread_logger)
+        thread_client = OpenMirroringClient(credential=credential, host=args.host_root_fqdn, logger=thread_logger)
         mirroring_clients.append(thread_client)
 
     try:
