@@ -106,31 +106,18 @@ def calculate_metrics(start_time: float, elapsed_time: float) -> dict:
     return metrics
 
 
-def generate_parquet_file(num_rows: int = 100) -> str:
+def generate_parquet_file(num_rows: int, custom_sql_template: str) -> str:
     """
     Generate a parquet file with random employee data using DuckDB.
 
+    :param num_rows: Number of rows to generate
+    :param custom_sql_template: Custom SQL template with {num_rows} and {parquet_path} placeholders
     :return: Path to the generated parquet file
     """
     temp_dir = tempfile.mkdtemp()
     file_guid = str(uuid.uuid4())
     parquet_path = os.path.join(temp_dir, f"{file_guid}.parquet")
-    sql_query = f"""
-    COPY (
-        SELECT 
-            NOW() AT TIME ZONE 'UTC' AS WriterTimestamp,
-            'E' || LPAD(CAST((RANDOM() * 999 + 1)::INT AS VARCHAR), 3, '0') AS EmployeeID,
-            CASE 
-                WHEN RANDOM() < 0.25 THEN 'Redmond'
-                WHEN RANDOM() < 0.50 THEN 'Seattle'
-                WHEN RANDOM() < 0.75 THEN 'Bellevue'
-                WHEN RANDOM() < 0.90 THEN 'Toronto'
-                ELSE 'Kirkland'
-            END AS EmployeeLocation,
-            0 AS __rowMarker__
-        FROM generate_series(1, {num_rows})
-    ) TO '{parquet_path}'
-    """
+    sql_query = custom_sql_template.format(num_rows=num_rows, parquet_path=parquet_path)
 
     duckdb.sql(sql_query)
 
@@ -148,6 +135,7 @@ def writer_task(
     duration: int,
     interval: int,
     stop_event: threading.Event,
+    custom_sql_template: str,
 ) -> int:
     logger = logging.getLogger(f"writer_{writer_id}")
     writer_uploads = 0
@@ -163,7 +151,7 @@ def writer_task(
                 elapsed = time.time() - start_time
                 remaining = duration - elapsed
 
-            parquet_file_path = generate_parquet_file(num_rows)
+            parquet_file_path = generate_parquet_file(num_rows, custom_sql_template)
             try:
                 upload_start_time = time.time()
                 mirroring_client.upload_data_file(
@@ -206,6 +194,7 @@ def parse_args():
     parser.add_argument("--concurrent-writers", type=int, default=2, help="Number of concurrent writer threads (default: 2).")
     parser.add_argument("--num-rows", type=int, default=100, help="Number of rows to generate in each parquet file (default: 100).")
     parser.add_argument("--timeout", type=int, default=60, help="Timeout in seconds for waiting for worker threads to complete (default: 60).")
+    parser.add_argument("--custom-sql", type=str, help="Custom SQL query template with {num_rows} and {parquet_path} placeholders for string replacement.")
 
     return parser.parse_args()
 
@@ -251,6 +240,7 @@ def main():
                     duration=args.duration,
                     interval=args.interval,
                     stop_event=stop_event,
+                    custom_sql_template=args.custom_sql,
                 )
                 futures.append(future)
 

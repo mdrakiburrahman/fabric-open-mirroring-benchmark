@@ -26,6 +26,23 @@ python -m black --line-length 2000 .
 Run:
 
 ```powershell
+$PARUQET_GENERATOR_QUERY = @"
+COPY (
+    SELECT 
+        NOW() AT TIME ZONE 'UTC' AS WriterTimestamp,
+        'E' || LPAD(CAST((RANDOM() * 999 + 1)::INT AS VARCHAR), 3, '0') AS EmployeeID,
+        CASE 
+            WHEN RANDOM() < 0.25 THEN 'Redmond'
+            WHEN RANDOM() < 0.50 THEN 'Seattle'
+            WHEN RANDOM() < 0.75 THEN 'Bellevue'
+            WHEN RANDOM() < 0.90 THEN 'Toronto'
+            ELSE 'Kirkland'
+        END AS EmployeeLocation,
+        0 AS __rowMarker__
+    FROM generate_series(1, {num_rows})
+) TO '{parquet_path}'
+"@
+
 python write.py `
   --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/83185a57-3b3c-4802-8e19-94fc046e5d4a" `
   --schema-name "microsoft" `
@@ -35,7 +52,8 @@ python write.py `
   --duration 30 `
   --concurrent-writers 16 `
   --num-rows 625000 `
-  --timeout 60
+  --timeout 60 `
+  --custom-sql $PARUQET_GENERATOR_QUERY
 ```
 
 Get metrics:
