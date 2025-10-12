@@ -25,12 +25,60 @@ logging.getLogger("openmirroring_operations").setLevel(logging.INFO)
 upload_counter = threading.Lock()
 global_upload_count = 0
 
+upload_stats = {}
+upload_stats_lock = threading.Lock()
+
 
 def get_next_upload_number() -> int:
     global global_upload_count
     with upload_counter:
         global_upload_count += 1
         return global_upload_count
+
+
+def record_successful_upload(writer_id: int, num_rows: int) -> None:
+    """Record a successful upload with timestamp, writer_id, and num_rows."""
+    global upload_stats
+    timestamp = time.time()
+    with upload_stats_lock:
+        upload_stats[timestamp] = (writer_id, num_rows)
+
+
+def calculate_average_rows_per_minute(start_time: float) -> None:
+    """Calculate and log the average rows per minute grouped by minute intervals."""
+    global upload_stats
+    logger = logging.getLogger(__name__)
+
+    if not upload_stats:
+        logger.info("No upload statistics to analyze.")
+        return
+
+    minute_stats = {}
+    total_rows = 0
+
+    with upload_stats_lock:
+        for timestamp, (writer_id, num_rows) in upload_stats.items():
+            minutes_elapsed = int((timestamp - start_time) // 60)
+            if minutes_elapsed not in minute_stats:
+                minute_stats[minutes_elapsed] = 0
+            minute_stats[minutes_elapsed] += num_rows
+            total_rows += num_rows
+
+    logger.info("=== Upload Statistics ===")
+    logger.info(f"Total uploads recorded: {len(upload_stats)}")
+    logger.info(f"Total rows uploaded: {total_rows}")
+
+    if minute_stats:
+        logger.info("Rows per minute breakdown:")
+        for minute, rows in sorted(minute_stats.items()):
+            logger.info(f"  Minute {minute}: {rows} rows")
+
+        total_minutes = len(minute_stats)
+        if total_minutes > 0:
+            avg_rows_per_minute = total_rows / total_minutes
+            logger.info(f"Average rows per minute: {avg_rows_per_minute:.2f}")
+        else:
+            logger.info("No complete minutes to calculate average.")
 
 
 def generate_parquet_file(num_rows: int = 100) -> str:
@@ -100,6 +148,8 @@ def writer_task(
                 )
                 upload_duration = time.time() - upload_start_time
                 writer_uploads += 1
+
+                record_successful_upload(writer_id, num_rows)
 
                 logger.info(f"[{writer_id}/{total_writers-1}] Upload #{upload_number} completed in {upload_duration:.2f} seconds, remaining: {remaining:.1f} seconds.")
 
@@ -208,6 +258,8 @@ def main():
     elapsed_time = time.time() - start_time
     logger.info(f"Concurrent mode completed. Total uploads: {global_upload_count}, Total time: {elapsed_time:.1f} seconds")
     logger.info(f"Upload rate: {global_upload_count / elapsed_time:.2f} uploads/second")
+    calculate_average_rows_per_minute(start_time)
+
     logger.info(f"Mirrored database status: {mirroringClient.get_mirrored_database_status()}")
     logger.info(f"All table status retrieved successfully: {mirroringClient.get_table_status()}")
     logger.info(f"Status for table '{args.schema_name}.{args.table_name}': {mirroringClient.get_table_status(schema_name=args.schema_name, table_name=args.table_name)}")
