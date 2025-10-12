@@ -1,3 +1,3 @@
 # Fabric Open Mirroring Benchmark
 
-Benchmarking Fabric Open Mirroring to find the practical limits.
+Benchmarking Fabric Open Mirroring to find practical scalability limits.
