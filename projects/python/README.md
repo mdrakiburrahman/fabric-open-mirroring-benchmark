@@ -44,7 +44,7 @@ COPY (
 "@
 
 python write.py `
-  --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/1b74d8c9-0785-40b9-8120-be8d92baf650" `
+  --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/24bc8931-db5e-4a59-afd9-74e8182b454b" `
   --schema-name "contoso" `
   --table-name "employees" `
   --key-cols "EmployeeID" `
@@ -60,7 +60,7 @@ Get metrics:
 
 ```powershell
 python metric.py `
-  --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/1b74d8c9-0785-40b9-8120-be8d92baf650" `
+  --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/24bc8931-db5e-4a59-afd9-74e8182b454b" `
   --schema-name "contoso" `
   --table-name "employees"
 ```
