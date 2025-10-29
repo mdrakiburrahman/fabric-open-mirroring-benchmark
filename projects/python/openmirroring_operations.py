@@ -517,13 +517,14 @@ class OpenMirroringClient:
         except Exception as e:
             raise Exception(f"Failed to get Delta table files and metadata: {e}")
 
-    def get_latest_delta_committed_file(self, schema_name: str = None, table_name: str = "") -> str:
+    def get_latest_delta_committed_file(self, schema_name: str = None, table_name: str = "") -> List[str]:
         """
-        Returns the name of the latest committed parquet file in the Delta table based on Delta created_time metadata.
+        Returns the names of all committed parquet files in the Delta table with the latest created_time metadata.
+        Since multiple files can have the same created_time, this returns an array of all such files.
 
         :param schema_name: Optional schema name.
         :param table_name: Name of the table.
-        :return: The name of the latest Delta committed parquet file.
+        :return: List of the latest Delta committed parquet file names.
         :raises Exception: If no Delta files are found or if the table doesn't exist.
         """
         if not table_name:
@@ -535,22 +536,30 @@ class OpenMirroringClient:
             if not delta_files_metadata:
                 raise FileNotFoundError(f"No Delta committed files found for table '{table_name}' in schema '{schema_name}'.")
 
-            # Find the file with the latest created_time from Delta metadata
-            latest_file = max(delta_files_metadata, key=lambda x: x.get("created_time", "") if x.get("created_time") else "")
+            # Find the latest created_time from Delta metadata
+            latest_created_time = max(delta_files_metadata, key=lambda x: x.get("created_time", "") if x.get("created_time") else "").get("created_time", "")
 
-            latest_file_path = latest_file.get("file_path", "")
-            if not latest_file_path:
-                raise FileNotFoundError(f"Could not determine latest Delta committed file for table '{table_name}' in schema '{schema_name}'.")
+            if not latest_created_time:
+                raise FileNotFoundError(f"Could not determine latest created_time for Delta committed files for table '{table_name}' in schema '{schema_name}'.")
 
-            self.logger.debug(f"Latest Delta committed file: {latest_file_path} (created: {latest_file.get('created_time', 'N/A')})")
-            return latest_file_path
+            # Find all files with the latest created_time
+            latest_files = [file_info.get("file_path", "") for file_info in delta_files_metadata if file_info.get("created_time", "") == latest_created_time]
+
+            # Filter out any empty file paths
+            latest_files = [file_path for file_path in latest_files if file_path]
+
+            if not latest_files:
+                raise FileNotFoundError(f"Could not determine latest Delta committed files for table '{table_name}' in schema '{schema_name}'.")
+
+            self.logger.debug(f"Latest Delta committed files ({len(latest_files)}): {latest_files} (created: {latest_created_time})")
+            return latest_files
 
         except Exception as e:
-            raise Exception(f"Failed to get latest Delta committed file: {e}")
+            raise Exception(f"Failed to get latest Delta committed files: {e}")
 
     def get_delta_committed_file_created_time(self, schema_name: str = None, table_name: str = ""):
         """
-        Returns the created_time from Delta metadata of the latest committed Delta parquet file.
+        Returns the created_time from Delta metadata of the latest committed Delta parquet files.
 
         :param schema_name: Optional schema name.
         :param table_name: Name of the table.
@@ -566,14 +575,14 @@ class OpenMirroringClient:
             if not delta_files_metadata:
                 raise FileNotFoundError(f"No Delta committed files found for table '{table_name}' in schema '{schema_name}'.")
 
-            latest_file = max(delta_files_metadata, key=lambda x: x.get("created_time", "") if x.get("created_time") else "")
+            # Find the latest created_time from Delta metadata
+            latest_created_time = max(delta_files_metadata, key=lambda x: x.get("created_time", "") if x.get("created_time") else "").get("created_time", None)
 
-            created_time = latest_file.get("created_time", None)
-            if not created_time:
-                raise FileNotFoundError(f"Could not get created_time for latest Delta committed file for table '{table_name}' in schema '{schema_name}'.")
+            if not latest_created_time:
+                raise FileNotFoundError(f"Could not get created_time for latest Delta committed files for table '{table_name}' in schema '{schema_name}'.")
 
-            self.logger.debug(f"Latest Delta committed file created_time: {created_time}")
-            return created_time
+            self.logger.debug(f"Latest Delta committed files created_time: {latest_created_time}")
+            return latest_created_time
 
         except Exception as e:
-            raise Exception(f"Failed to get Delta committed file created_time: {e}")
+            raise Exception(f"Failed to get Delta committed files created_time: {e}")

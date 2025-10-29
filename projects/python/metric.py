@@ -5,6 +5,7 @@ import argparse
 import duckdb
 import logging
 import pandas as pd
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from azure.identity import AzureCliCredential
 from datetime import datetime
@@ -160,18 +161,41 @@ def main():
     except Exception as e:
         logger.warning(f"Could not get latest Tables parquet file: {e}")
 
-    latest_delta_committed_file = None
+    latest_delta_committed_files = []
     latest_delta_committed_file_last_modified = None
     latest_delta_committed_file_landing_zone_max_timestamp = None
     delta_size_bytes = 0
 
     try:
-        latest_delta_committed_file = mirroring_client.get_latest_delta_committed_file(schema_name=args.schema_name, table_name=args.table_name)
-        delta_file_path = f"{args.schema_name}/{args.table_name}/{latest_delta_committed_file}" if args.schema_name else f"{args.table_name}/{latest_delta_committed_file}"
-        latest_delta_committed_file_last_modified = mirroring_client.get_parquet_file_last_modified(delta_file_path, file_system="Tables")
-        delta_size_bytes = mirroring_client.get_parquet_file_size(delta_file_path, file_system="Tables")
-        delta_full_path = f"Tables/{args.schema_name}/{args.table_name}/{latest_delta_committed_file}" if args.schema_name else f"Tables/{args.table_name}/{latest_delta_committed_file}"
-        latest_delta_committed_file_landing_zone_max_timestamp = get_max_writer_timestamp(args.host_root_fqdn, delta_full_path, logger)
+        latest_delta_committed_files = mirroring_client.get_latest_delta_committed_file(schema_name=args.schema_name, table_name=args.table_name)
+        
+        if latest_delta_committed_files:
+
+            first_file = latest_delta_committed_files[0]
+            delta_file_path = f"{args.schema_name}/{args.table_name}/{first_file}" if args.schema_name else f"{args.table_name}/{first_file}"
+            latest_delta_committed_file_last_modified = mirroring_client.get_parquet_file_last_modified(delta_file_path, file_system="Tables")
+            delta_size_bytes = mirroring_client.get_parquet_file_size(delta_file_path, file_system="Tables")
+            
+            max_timestamps = []
+            with ThreadPoolExecutor(max_workers=min(len(latest_delta_committed_files), 10)) as executor:
+                future_to_file = {}
+                for delta_file in latest_delta_committed_files:
+                    delta_full_path = f"Tables/{args.schema_name}/{args.table_name}/{delta_file}" if args.schema_name else f"Tables/{args.table_name}/{delta_file}"
+                    future = executor.submit(get_max_writer_timestamp, args.host_root_fqdn, delta_full_path, logger)
+                    future_to_file[future] = delta_file
+
+                for future in as_completed(future_to_file):
+                    delta_file = future_to_file[future]
+                    try:
+                        timestamp = future.result()
+                        if timestamp:
+                            max_timestamps.append(timestamp)
+                    except Exception as exc:
+                        logger.warning(f"Failed to get timestamp for {delta_file}: {exc}")
+
+            if max_timestamps:
+                latest_delta_committed_file_landing_zone_max_timestamp = max(max_timestamps)
+                logger.info(f"Found {len(max_timestamps)} timestamps from {len(latest_delta_committed_files)} Delta files, using max: {latest_delta_committed_file_landing_zone_max_timestamp}")
 
     except Exception as e:
         logger.warning(f"Could not get Delta table metrics: {e}")
@@ -237,7 +261,7 @@ def main():
             delta_size_mb,
             latest_landing_zone_file or "Not found", 
             latest_tables_file or "Not found", 
-            latest_delta_committed_file or "Not found",
+            latest_delta_committed_files[0] if latest_delta_committed_files else "Not found",
             str(landing_zone_last_modified) if landing_zone_last_modified else "Not found", 
             str(tables_last_modified) if tables_last_modified else "Not found",
             latest_delta_committed_file_last_modified or "Not found",

@@ -1,0 +1,24 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug metric.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/projects/python/metric.py",
+            "args": [
+                "--host-root-fqdn",
+                "https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/1b74d8c9-0785-40b9-8120-be8d92baf650",
+                "--schema-name",
+                "contoso",
+                "--table-name",
+                "employees"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/projects/python",
+            "python": "${workspaceFolder}/projects/python/venv/Scripts/python.exe",
+            "stopOnEntry": false,
+            "justMyCode": true
+        }
+    ]
+}
