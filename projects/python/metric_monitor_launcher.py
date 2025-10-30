@@ -5,9 +5,11 @@
 Launcher script for the Open Mirroring Metrics Monitor Streamlit app.
 
 Usage:
-python metric_monitor_launcher.py --host-root-fqdn "https://..." --schema-name "microsoft" --table-name "employees" --poll 30 --metrics "metric1,metric2,metric3"
+python metric_monitor_launcher.py --host-root-fqdns "https://host1/.../guid1,https://host2/.../guid2" --schema-names "microsoft,contoso" --table-names "employees,products" --poll 30 --metrics "metric1,metric2,metric3"
 
 This script starts the Streamlit application with the provided arguments.
+Host FQDNs, schema names and table names should be provided as comma-separated lists in corresponding order.
+Each host FQDN corresponds to the schema-table pair at the same index position.
 """
 
 import subprocess
@@ -24,22 +26,22 @@ logging.basicConfig(
 def parse_args():
     parser = argparse.ArgumentParser(description="Open Mirroring Metrics Monitor Launcher")
     parser.add_argument(
-        "--host-root-fqdn", 
+        "--host-root-fqdns", 
         type=str, 
         required=True, 
-        help="Host Root FQDN ending with GUID (e.g. 'https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/f0a2c69e-ad20-4cd1-b35b-409776de3d66')"
+        help="Comma-separated list of Host Root FQDNs ending with GUID, corresponding to each schema (e.g. 'https://msit-onelake.dfs.fabric.microsoft.com/.../guid1,https://msit-onelake.dfs.fabric.microsoft.com/.../guid2')"
     )
     parser.add_argument(
-        "--schema-name", 
+        "--schema-names", 
         type=str, 
         required=True, 
-        help="Schema name for the table (e.g. 'microsoft')"
+        help="Comma-separated list of schema names (e.g. 'microsoft,contoso')"
     )
     parser.add_argument(
-        "--table-name", 
+        "--table-names", 
         type=str, 
         required=True, 
-        help="Table name (e.g. 'employees')"
+        help="Comma-separated list of table names, corresponding to schema names (e.g. 'employees,products')"
     )
     parser.add_argument(
         "--poll", 
@@ -75,17 +77,17 @@ def main():
         sys.executable, "-m", "streamlit", "run", streamlit_app,
         "--server.port", str(args.port),
         "--",
-        "--host-root-fqdn", args.host_root_fqdn,
-        "--schema-name", args.schema_name,
-        "--table-name", args.table_name,
+        "--host-root-fqdns", args.host_root_fqdns,
+        "--schema-names", args.schema_names,
+        "--table-names", args.table_names,
         "--poll", str(args.poll),
         "--metrics", args.metrics
     ]
     
     logger.info("Starting Streamlit app with the following configuration:")
-    logger.info(f"  Host: {args.host_root_fqdn}")
-    logger.info(f"  Schema: {args.schema_name}")
-    logger.info(f"  Table: {args.table_name}")
+    logger.info(f"  Hosts: {args.host_root_fqdns}")
+    logger.info(f"  Schemas: {args.schema_names}")
+    logger.info(f"  Tables: {args.table_names}")
     logger.info(f"  Poll Interval: {args.poll}s")
     logger.info(f"  Metrics: {args.metrics}")
     logger.info(f"  Port: {args.port}")

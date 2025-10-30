@@ -20,11 +20,20 @@ from metric_operations import MetricOperationsClient
 
 args = dict(zip(sys.argv[1::2], sys.argv[2::2]))
 
-host_root_fqdn = args.get('--host-root-fqdn', 'https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/f0a2c69e-ad20-4cd1-b35b-409776de3d66')
-schema_name = args.get('--schema-name', 'microsoft')
-table_name = args.get('--table-name', 'employees')
+host_root_fqdns = args.get('--host-root-fqdns', 'https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/f0a2c69e-ad20-4cd1-b35b-409776de3d66').split(',')
+schema_names = args.get('--schema-names', 'microsoft').split(',')
+table_names = args.get('--table-names', 'employees').split(',')
 poll_interval = int(args.get('--poll', 30))
 metrics_to_plot = args.get('--metrics', 'latest_parquet_file_landing_zone_size_mb,latest_parquet_file_tables_size_mb,latest_delta_committed_file_size_mb').split(',')
+
+# Validate that all lists have the same length
+if len(host_root_fqdns) != len(schema_names) or len(schema_names) != len(table_names):
+    st.error(f"Number of host FQDNs ({len(host_root_fqdns)}), schema names ({len(schema_names)}), and table names ({len(table_names)}) must all match")
+    st.stop()
+
+# Create host-schema-table triplets
+host_schema_table_triplets = list(zip(host_root_fqdns, schema_names, table_names))
+schema_table_pairs = list(zip(schema_names, table_names))
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -39,7 +48,8 @@ st.set_page_config(
 )
 
 st.title("📊 Open Mirroring Metrics Monitor")
-st.markdown(f"**Table**: `{schema_name}.{table_name}` | **Poll Interval**: {poll_interval}s")
+table_list = ", ".join([f"`{schema}.{table}`" for schema, table in schema_table_pairs])
+st.markdown(f"**Tables**: {table_list} | **Poll Interval**: {poll_interval}s")
 
 @st.cache_resource
 def get_db_connection():
@@ -49,12 +59,17 @@ def get_db_connection():
     return conn
 
 @st.cache_resource
-def get_metric_client():
-    """Initialize the metric operations client."""
+def get_metric_clients():
+    """Initialize the metric operations clients for all hosts."""
     logger = logging.getLogger(__name__)
     credential = AzureCliCredential()
-    mirroring_client = OpenMirroringClient(credential=credential, host=host_root_fqdn, logger=logger)
-    return MetricOperationsClient(mirroring_client=mirroring_client, host=host_root_fqdn, logger=logger)
+    clients = {}
+    
+    for host_fqdn in host_root_fqdns:
+        mirroring_client = OpenMirroringClient(credential=credential, host=host_fqdn, logger=logger)
+        clients[host_fqdn] = MetricOperationsClient(mirroring_client=mirroring_client, host=host_fqdn, logger=logger)
+    
+    return clients
 
 def create_metrics_table():
     """Create the metrics table if it doesn't exist."""
@@ -69,6 +84,7 @@ def create_metrics_table():
         conn.execute("""
             CREATE TABLE IF NOT EXISTS metrics_data (
                 timestamp TIMESTAMP,
+                host_fqdn VARCHAR,
                 schema_name VARCHAR,
                 table_name VARCHAR,
                 metric_name VARCHAR,
@@ -77,25 +93,29 @@ def create_metrics_table():
             )
         """)
         conn.execute("""
-            CREATE INDEX idx_metrics_timestamp ON metrics_data(timestamp)
+            CREATE INDEX IF NOT EXISTS idx_metrics_timestamp ON metrics_data(timestamp)
         """)
         conn.execute("""
-            CREATE INDEX idx_metrics_name ON metrics_data(metric_name)
+            CREATE INDEX IF NOT EXISTS idx_metrics_name ON metrics_data(metric_name)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_metrics_schema_table ON metrics_data(schema_name, table_name)
         """)
 
 def collect_and_store_metrics():
-    """Collect only the specified metrics and store them in the database."""
+    """Collect only the specified metrics and store them in the database for all schema-table pairs."""
     
     try:
         collection_start_time = time.time()
         
-        metric_client = get_metric_client()
+        metric_clients = get_metric_clients()
         conn = get_db_connection()
         current_time = datetime.now()
         
-        def collect_single_metric(metric_name):
-            """Collect a single metric."""
+        def collect_single_metric(metric_name, host_fqdn, schema_name, table_name):
+            """Collect a single metric for a specific host-schema-table triplet."""
             try:
+                metric_client = metric_clients[host_fqdn]
                 metric_value = metric_client.get_metric(metric_name, schema_name=schema_name, table_name=table_name)
                 
                 try:
@@ -103,32 +123,37 @@ def collect_and_store_metrics():
                 except (ValueError, TypeError):
                     metric_value_numeric = None
                 
-                return (metric_name, metric_value, metric_value_numeric)
+                return (host_fqdn, schema_name, table_name, metric_name, metric_value, metric_value_numeric)
                 
             except Exception as e:
-                return (metric_name, None, None)
+                return (host_fqdn, schema_name, table_name, metric_name, None, None)
         
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(metrics_to_plot), 10)) as executor:
-            future_to_metric = {executor.submit(collect_single_metric, metric): metric for metric in metrics_to_plot}
+        futures = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(metrics_to_plot) * len(host_schema_table_triplets), 20)) as executor:
+            for host_fqdn, schema_name, table_name in host_schema_table_triplets:
+                for metric_name in metrics_to_plot:
+                    future = executor.submit(collect_single_metric, metric_name, host_fqdn, schema_name, table_name)
+                    futures.append(future)
             
-            for future in concurrent.futures.as_completed(future_to_metric):
-                metric_name, metric_value, metric_value_numeric = future.result()
+            for future in concurrent.futures.as_completed(futures):
+                host_fqdn, schema_name, table_name, metric_name, metric_value, metric_value_numeric = future.result()
                 
                 if metric_value is not None:
                     conn.execute("""
                         INSERT INTO metrics_data 
-                        (timestamp, schema_name, table_name, metric_name, metric_value, metric_value_numeric)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    """, [current_time, schema_name, table_name, metric_name, str(metric_value), metric_value_numeric])
+                        (timestamp, host_fqdn, schema_name, table_name, metric_name, metric_value, metric_value_numeric)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, [current_time, host_fqdn, schema_name, table_name, metric_name, str(metric_value), metric_value_numeric])
         
         collection_end_time = time.time()
         collection_duration = collection_end_time - collection_start_time
         
-        conn.execute("""
-            INSERT INTO metrics_data 
-            (timestamp, schema_name, table_name, metric_name, metric_value, metric_value_numeric)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, [current_time, schema_name, table_name, "metric_collection_duration", f"{collection_duration:.2f}s", collection_duration])
+        for host_fqdn, schema_name, table_name in host_schema_table_triplets:
+            conn.execute("""
+                INSERT INTO metrics_data 
+                (timestamp, host_fqdn, schema_name, table_name, metric_name, metric_value, metric_value_numeric)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, [current_time, host_fqdn, schema_name, table_name, "metric_collection_duration", f"{collection_duration:.2f}s", collection_duration])
         
         conn.execute("""
             DELETE FROM metrics_data 
@@ -144,14 +169,14 @@ def format_metric_name(metric_name):
     """Format metric name for display."""
     return metric_name.replace('_', ' ').title()
 
-def get_combined_metrics_data(hours=24):
-    """Get historical data for all specified metrics combined."""
+def get_metrics_data_for_table(schema_name, table_name, hours=24):
+    """Get historical data for all specified metrics for a specific schema-table pair."""
     conn = get_db_connection()
     metrics_to_plot_with_duration = metrics_to_plot + ["metric_collection_duration"]
     placeholders = ','.join(['?' for _ in metrics_to_plot_with_duration])
     
     df = conn.execute(f"""
-        SELECT timestamp, metric_name, metric_value, metric_value_numeric
+        SELECT timestamp, host_fqdn, schema_name, table_name, metric_name, metric_value, metric_value_numeric
         FROM metrics_data 
         WHERE metric_name IN ({placeholders})
         AND schema_name = ?
@@ -162,8 +187,24 @@ def get_combined_metrics_data(hours=24):
     
     return df
 
-def create_combined_chart(df):
-    """Create a single chart with all metrics and a legend."""
+def get_all_metrics_data(hours=24):
+    """Get historical data for all specified metrics for all schema-table pairs."""
+    conn = get_db_connection()
+    metrics_to_plot_with_duration = metrics_to_plot + ["metric_collection_duration"]
+    placeholders = ','.join(['?' for _ in metrics_to_plot_with_duration])
+    
+    df = conn.execute(f"""
+        SELECT timestamp, host_fqdn, schema_name, table_name, metric_name, metric_value, metric_value_numeric
+        FROM metrics_data 
+        WHERE metric_name IN ({placeholders})
+        AND timestamp >= now() - INTERVAL {hours} HOUR
+        ORDER BY timestamp ASC, schema_name, table_name, metric_name
+    """, metrics_to_plot_with_duration).fetchdf()
+    
+    return df
+
+def create_chart_for_table(df, schema_name, table_name):
+    """Create a chart for a specific schema-table pair."""
     if df.empty:
         return None
     
@@ -198,7 +239,7 @@ def create_combined_chart(df):
             y_position -= 0.05
     
     fig.update_layout(
-        title="Open Mirroring Metrics",
+        title=f"Open Mirroring Metrics - {schema_name}.{table_name}",
         xaxis_title="Time",
         yaxis_title="Value",
         height=500,
@@ -231,13 +272,21 @@ if auto_refresh:
         else:
             st.error(f"❌ Error collecting metrics: {error}")
 
-df = get_combined_metrics_data(time_range)
+any_data = False
+for schema_name, table_name in schema_table_pairs:
+    st.subheader(f"📊 {schema_name}.{table_name}")
+    
+    df = get_metrics_data_for_table(schema_name, table_name, time_range)
+    
+    if not df.empty:
+        any_data = True
+        fig = create_chart_for_table(df, schema_name, table_name)
+        if fig:
+            st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info(f"No metrics data available yet for {schema_name}.{table_name}. Data will appear after first collection.")
 
-if not df.empty:
-    fig = create_combined_chart(df)
-    if fig:
-        st.plotly_chart(fig, use_container_width=True)
-else:
+if not any_data:
     st.info("No metrics data available yet. Data will appear after first collection.")
 
 if auto_refresh:
