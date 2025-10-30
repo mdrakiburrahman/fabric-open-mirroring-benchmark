@@ -69,7 +69,7 @@ python metric_monitor_launcher.py `
   --schema-names "contoso" `
   --table-names "employees" `
   --metrics "lag_seconds_max_timestamp_parquet_file_landing_zone_to_parquet_file_table,lag_seconds_max_timestamp_parquet_file_landing_zone_to_delta_committed_file" `
-  --poll 5 `
+  --poll 30 `
   --port 8501
 ```
 
