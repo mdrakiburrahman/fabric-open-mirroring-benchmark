@@ -96,7 +96,6 @@ def main():
     logger.info("Press Ctrl+C to stop the application")
     
     try:
-        # Run the Streamlit app
         subprocess.run(cmd, check=True)
     except KeyboardInterrupt:
         logger.info("Application stopped by user")
