@@ -237,7 +237,6 @@ class MetricOperationsClient:
                 )
                 metrics["latest_delta_committed_file_size_mb"] = self.bytes_to_mb(delta_size_bytes)
 
-                # Get max timestamps from all delta files
                 max_timestamps = []
                 with ThreadPoolExecutor(max_workers=min(len(latest_delta_committed_files), 10)) as executor:
                     future_to_file = {}
@@ -282,7 +281,6 @@ class MetricOperationsClient:
         tables_max_timestamp = tables_metrics.get("latest_parquet_file_tables_max_timestamp")
         delta_max_timestamp = delta_metrics.get("latest_delta_committed_file_landing_zone_max_timestamp")
 
-        # Convert "Not found" to None for calculations
         if landing_zone_last_modified == "Not found":
             landing_zone_last_modified = None
         if tables_last_modified == "Not found":
@@ -310,78 +308,171 @@ class MetricOperationsClient:
 
     def get_metric(self, metric_name: str, schema_name: str, table_name: str) -> Any:
         """
-        Get a specific metric by name - efficiently calculates only the requested metric.
+        Get a specific metric by name - calculates ONLY the exact data needed for that specific metric.
 
         :param metric_name: Name of the metric to calculate
         :param schema_name: Schema name for the table
         :param table_name: Table name
         :return: The calculated metric value
         """
-        landing_zone_metrics = [
-            "latest_parquet_file_landing_zone_size_mb",
-            "latest_parquet_file_landing_zone_name", 
-            "latest_parquet_file_landing_zone_last_modified",
-            "latest_parquet_file_landing_zone_max_timestamp"
-        ]
-        
-        tables_metrics = [
-            "latest_parquet_file_tables_size_mb",
-            "latest_parquet_file_tables_name",
-            "latest_parquet_file_tables_last_modified", 
-            "latest_parquet_file_tables_max_timestamp"
-        ]
-        
-        delta_metrics = [
-            "latest_delta_committed_file_size_mb",
-            "latest_delta_committed_file_name",
-            "latest_delta_committed_file_last_modified",
-            "latest_delta_committed_file_landing_zone_max_timestamp"
-        ]
-        
-        lag_metrics = [
-            "lag_seconds_parquet_file_landing_zone_to_parquet_file_table",
-            "lag_seconds_parquet_file_landing_zone_to_delta_committed_file", 
-            "lag_seconds_max_timestamp_parquet_file_landing_zone_to_parquet_file_table",
-            "lag_seconds_max_timestamp_parquet_file_landing_zone_to_delta_committed_file"
-        ]
-        
-        # Calculate only the required category/categories
-        if metric_name in landing_zone_metrics:
-            metrics = self.calculate_landing_zone_metrics(schema_name, table_name)
-            return metrics.get(metric_name)
-            
-        elif metric_name in tables_metrics:
-            metrics = self.calculate_tables_metrics(schema_name, table_name)
-            return metrics.get(metric_name)
-            
-        elif metric_name in delta_metrics:
-            metrics = self.calculate_delta_metrics(schema_name, table_name)
-            return metrics.get(metric_name)
-            
-        elif metric_name in lag_metrics:
-            # Lag metrics require data from multiple categories
-            # Calculate only the minimum required metrics
-            lz_metrics = None
-            tables_metrics_data = None
-            delta_metrics_data = None
-            
-            if "landing_zone_to_parquet_file_table" in metric_name:
-                lz_metrics = self.calculate_landing_zone_metrics(schema_name, table_name)
-                tables_metrics_data = self.calculate_tables_metrics(schema_name, table_name)
+        try:
+            if metric_name == "latest_parquet_file_landing_zone_size_mb":
+                latest_file = self.mirroring_client.get_latest_parquet_file_landing_zone(schema_name=schema_name, table_name=table_name)
+                file_path = f"LandingZone/{schema_name}.schema/{table_name}/{latest_file}"
+                size_bytes = self.mirroring_client.get_parquet_file_size(file_path, file_system="Files")
+                return self.bytes_to_mb(size_bytes)
                 
-            elif "landing_zone_to_delta_committed_file" in metric_name:
-                lz_metrics = self.calculate_landing_zone_metrics(schema_name, table_name)
-                delta_metrics_data = self.calculate_delta_metrics(schema_name, table_name)
-            
-            lz_metrics = lz_metrics or {}
-            tables_metrics_data = tables_metrics_data or {}
-            delta_metrics_data = delta_metrics_data or {}
-            
-            lag_metrics_result = self.calculate_lag_metrics(lz_metrics, tables_metrics_data, delta_metrics_data)
-            return lag_metrics_result.get(metric_name)
-            
-        else:
-            raise ValueError(f"Unknown metric: {metric_name}. Available metrics: {self.get_available_metrics()}")
+            elif metric_name == "latest_parquet_file_landing_zone_name":
+                return self.mirroring_client.get_latest_parquet_file_landing_zone(schema_name=schema_name, table_name=table_name)
+                
+            elif metric_name == "latest_parquet_file_landing_zone_last_modified":
+                latest_file = self.mirroring_client.get_latest_parquet_file_landing_zone(schema_name=schema_name, table_name=table_name)
+                file_path = f"LandingZone/{schema_name}.schema/{table_name}/{latest_file}"
+                last_modified = self.mirroring_client.get_parquet_file_last_modified(file_path, file_system="Files")
+                return str(last_modified) if last_modified else "Not found"
+                
+            elif metric_name == "latest_parquet_file_landing_zone_max_timestamp":
+                latest_file = self.mirroring_client.get_latest_parquet_file_landing_zone(schema_name=schema_name, table_name=table_name)
+                full_path = f"Files/LandingZone/{schema_name}.schema/{table_name}/{latest_file}"
+                return self.get_max_writer_timestamp(full_path) or "Not found"
+                
+            elif metric_name == "latest_parquet_file_tables_size_mb":
+                latest_file = self.mirroring_client.get_latest_parquet_file_tables(schema_name=schema_name, table_name=table_name)
+                file_path = f"{schema_name}/{table_name}/{latest_file}" if schema_name else f"{table_name}/{latest_file}"
+                size_bytes = self.mirroring_client.get_parquet_file_size(file_path, file_system="Tables")
+                return self.bytes_to_mb(size_bytes)
+                
+            elif metric_name == "latest_parquet_file_tables_name":
+                return self.mirroring_client.get_latest_parquet_file_tables(schema_name=schema_name, table_name=table_name)
+                
+            elif metric_name == "latest_parquet_file_tables_last_modified":
+                latest_file = self.mirroring_client.get_latest_parquet_file_tables(schema_name=schema_name, table_name=table_name)
+                file_path = f"{schema_name}/{table_name}/{latest_file}" if schema_name else f"{table_name}/{latest_file}"
+                last_modified = self.mirroring_client.get_parquet_file_last_modified(file_path, file_system="Tables")
+                return str(last_modified) if last_modified else "Not found"
+                
+            elif metric_name == "latest_parquet_file_tables_max_timestamp":
+                latest_file = self.mirroring_client.get_latest_parquet_file_tables(schema_name=schema_name, table_name=table_name)
+                full_path = f"Tables/{schema_name}/{table_name}/{latest_file}" if schema_name else f"Tables/{table_name}/{latest_file}"
+                return self.get_max_writer_timestamp(full_path) or "Not found"
+                
+            elif metric_name == "latest_delta_committed_file_size_mb":
+                latest_files = self.mirroring_client.get_latest_delta_committed_file(schema_name=schema_name, table_name=table_name)
+                if latest_files:
+                    first_file = latest_files[0]
+                    file_path = f"{schema_name}/{table_name}/{first_file}" if schema_name else f"{table_name}/{first_file}"
+                    size_bytes = self.mirroring_client.get_parquet_file_size(file_path, file_system="Tables")
+                    return self.bytes_to_mb(size_bytes)
+                return 0
+                
+            elif metric_name == "latest_delta_committed_file_name":
+                latest_files = self.mirroring_client.get_latest_delta_committed_file(schema_name=schema_name, table_name=table_name)
+                return latest_files[0] if latest_files else "Not found"
+                
+            elif metric_name == "latest_delta_committed_file_last_modified":
+                latest_files = self.mirroring_client.get_latest_delta_committed_file(schema_name=schema_name, table_name=table_name)
+                if latest_files:
+                    first_file = latest_files[0]
+                    file_path = f"{schema_name}/{table_name}/{first_file}" if schema_name else f"{table_name}/{first_file}"
+                    last_modified = self.mirroring_client.get_parquet_file_last_modified(file_path, file_system="Tables")
+                    return str(last_modified) if last_modified else "Not found"
+                return "Not found"
+                
+            elif metric_name == "latest_delta_committed_file_landing_zone_max_timestamp":
+                latest_files = self.mirroring_client.get_latest_delta_committed_file(schema_name=schema_name, table_name=table_name)
+                if latest_files:
+                    max_timestamps = []
+                    with ThreadPoolExecutor(max_workers=min(len(latest_files), 10)) as executor:
+                        future_to_file = {}
+                        for delta_file in latest_files:
+                            full_path = f"Tables/{schema_name}/{table_name}/{delta_file}" if schema_name else f"Tables/{table_name}/{delta_file}"
+                            future = executor.submit(self.get_max_writer_timestamp, full_path)
+                            future_to_file[future] = delta_file
+                        
+                        for future in as_completed(future_to_file):
+                            try:
+                                timestamp = future.result()
+                                if timestamp:
+                                    max_timestamps.append(timestamp)
+                            except Exception as exc:
+                                self.logger.warning(f"Failed to get timestamp: {exc}")
+                    
+                    return max(max_timestamps) if max_timestamps else "Not found"
+                return "Not found"
+                
+            elif metric_name == "lag_seconds_parquet_file_landing_zone_to_parquet_file_table":
+                lz_file = self.mirroring_client.get_latest_parquet_file_landing_zone(schema_name=schema_name, table_name=table_name)
+                lz_path = f"LandingZone/{schema_name}.schema/{table_name}/{lz_file}"
+                lz_modified = self.mirroring_client.get_parquet_file_last_modified(lz_path, file_system="Files")
+                
+                tables_file = self.mirroring_client.get_latest_parquet_file_tables(schema_name=schema_name, table_name=table_name)
+                tables_path = f"{schema_name}/{table_name}/{tables_file}" if schema_name else f"{table_name}/{tables_file}"
+                tables_modified = self.mirroring_client.get_parquet_file_last_modified(tables_path, file_system="Tables")
+                
+                lag = self.calculate_lag_seconds(lz_modified, tables_modified)
+                return abs(lag) if lag is not None else "Not available"
+                
+            elif metric_name == "lag_seconds_parquet_file_landing_zone_to_delta_committed_file":
+                lz_file = self.mirroring_client.get_latest_parquet_file_landing_zone(schema_name=schema_name, table_name=table_name)
+                lz_path = f"LandingZone/{schema_name}.schema/{table_name}/{lz_file}"
+                lz_modified = self.mirroring_client.get_parquet_file_last_modified(lz_path, file_system="Files")
+                
+                delta_files = self.mirroring_client.get_latest_delta_committed_file(schema_name=schema_name, table_name=table_name)
+                if delta_files:
+                    delta_path = f"{schema_name}/{table_name}/{delta_files[0]}" if schema_name else f"{table_name}/{delta_files[0]}"
+                    delta_modified = self.mirroring_client.get_parquet_file_last_modified(delta_path, file_system="Tables")
+                    lag = self.calculate_lag_seconds(lz_modified, delta_modified)
+                    return abs(lag) if lag is not None else "Not available"
+                return "Not available"
+                
+            elif metric_name == "lag_seconds_max_timestamp_parquet_file_landing_zone_to_parquet_file_table":
+                lz_file = self.mirroring_client.get_latest_parquet_file_landing_zone(schema_name=schema_name, table_name=table_name)
+                lz_full_path = f"Files/LandingZone/{schema_name}.schema/{table_name}/{lz_file}"
+                lz_max_timestamp = self.get_max_writer_timestamp(lz_full_path)
+                
+                tables_file = self.mirroring_client.get_latest_parquet_file_tables(schema_name=schema_name, table_name=table_name)
+                tables_full_path = f"Tables/{schema_name}/{table_name}/{tables_file}" if schema_name else f"Tables/{table_name}/{tables_file}"
+                tables_max_timestamp = self.get_max_writer_timestamp(tables_full_path)
+                
+                lag = self.calculate_lag_seconds(lz_max_timestamp, tables_max_timestamp)
+                return abs(lag) if lag is not None else "Not available"
+                
+            elif metric_name == "lag_seconds_max_timestamp_parquet_file_landing_zone_to_delta_committed_file":
+                lz_file = self.mirroring_client.get_latest_parquet_file_landing_zone(schema_name=schema_name, table_name=table_name)
+                lz_full_path = f"Files/LandingZone/{schema_name}.schema/{table_name}/{lz_file}"
+                lz_max_timestamp = self.get_max_writer_timestamp(lz_full_path)
+                
+                delta_files = self.mirroring_client.get_latest_delta_committed_file(schema_name=schema_name, table_name=table_name)
+                if delta_files:
+                    max_timestamps = []
+                    with ThreadPoolExecutor(max_workers=min(len(delta_files), 10)) as executor:
+                        future_to_file = {}
+                        for delta_file in delta_files:
+                            delta_full_path = f"Tables/{schema_name}/{table_name}/{delta_file}" if schema_name else f"Tables/{table_name}/{delta_file}"
+                            future = executor.submit(self.get_max_writer_timestamp, delta_full_path)
+                            future_to_file[future] = delta_file
+                        
+                        for future in as_completed(future_to_file):
+                            try:
+                                timestamp = future.result()
+                                if timestamp:
+                                    max_timestamps.append(timestamp)
+                            except Exception as exc:
+                                self.logger.warning(f"Failed to get timestamp: {exc}")
+                    
+                    if max_timestamps:
+                        delta_max_timestamp = max(max_timestamps)
+                        lag = self.calculate_lag_seconds(lz_max_timestamp, delta_max_timestamp)
+                        return abs(lag) if lag is not None else "Not available"
+                
+                return "Not available"
+                
+            else:
+                raise ValueError(f"Unknown metric: {metric_name}. Available metrics: {self.get_available_metrics()}")
+                
+        except Exception as e:
+            self.logger.error(f"Error calculating metric {metric_name}: {e}")
+            return "Error"
 
     def get_all_metrics(self, schema_name: str, table_name: str) -> Dict[str, Any]:
         """
@@ -393,13 +484,11 @@ class MetricOperationsClient:
         """
         self.logger.info(f"Calculating metrics for table '{table_name}' in schema '{schema_name}'")
 
-        # Calculate all metric categories
         landing_zone_metrics = self.calculate_landing_zone_metrics(schema_name, table_name)
         tables_metrics = self.calculate_tables_metrics(schema_name, table_name)
         delta_metrics = self.calculate_delta_metrics(schema_name, table_name)
         lag_metrics = self.calculate_lag_metrics(landing_zone_metrics, tables_metrics, delta_metrics)
 
-        # Combine all metrics
         all_metrics = {}
         all_metrics.update(landing_zone_metrics)
         all_metrics.update(tables_metrics)

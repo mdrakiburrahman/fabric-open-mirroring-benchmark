@@ -67,7 +67,7 @@ def create_metrics_table():
     
     if not table_exists:
         conn.execute("""
-            CREATE TABLE metrics_data (
+            CREATE TABLE IF NOT EXISTS metrics_data (
                 timestamp TIMESTAMP,
                 schema_name VARCHAR,
                 table_name VARCHAR,
@@ -87,6 +87,8 @@ def collect_and_store_metrics():
     """Collect only the specified metrics and store them in the database."""
     
     try:
+        collection_start_time = time.time()
+        
         metric_client = get_metric_client()
         conn = get_db_connection()
         current_time = datetime.now()
@@ -94,10 +96,7 @@ def collect_and_store_metrics():
         def collect_single_metric(metric_name):
             """Collect a single metric."""
             try:
-                start_time = time.time()
                 metric_value = metric_client.get_metric(metric_name, schema_name=schema_name, table_name=table_name)
-                end_time = time.time()
-                duration = end_time - start_time
                 
                 try:
                     metric_value_numeric = float(metric_value) if isinstance(metric_value, (int, float)) or (isinstance(metric_value, str) and metric_value.replace('.', '', 1).isdigit()) else None
@@ -121,6 +120,15 @@ def collect_and_store_metrics():
                         (timestamp, schema_name, table_name, metric_name, metric_value, metric_value_numeric)
                         VALUES (?, ?, ?, ?, ?, ?)
                     """, [current_time, schema_name, table_name, metric_name, str(metric_value), metric_value_numeric])
+        
+        collection_end_time = time.time()
+        collection_duration = collection_end_time - collection_start_time
+        
+        conn.execute("""
+            INSERT INTO metrics_data 
+            (timestamp, schema_name, table_name, metric_name, metric_value, metric_value_numeric)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, [current_time, schema_name, table_name, "metric_collection_time", f"{collection_duration:.2f}s", collection_duration])
         
         conn.execute("""
             DELETE FROM metrics_data 
@@ -215,12 +223,10 @@ status_placeholder = st.empty()
 if auto_refresh:
     with status_placeholder:
         with st.spinner("Collecting metrics..."):
-            start_time = time.time()
             success, error = collect_and_store_metrics()
-            duration = time.time() - start_time
         
         if success:
-            st.success(f"✅ Metrics collected at {datetime.now().strftime('%H:%M:%S')} (took {duration:.2f}s)")
+            st.success(f"✅ Metrics collected at {datetime.now().strftime('%H:%M:%S')}")
         else:
             st.error(f"❌ Error collecting metrics: {error}")
 
