@@ -63,6 +63,14 @@ python metric.py `
   --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/24bc8931-db5e-4a59-afd9-74e8182b454b" `
   --schema-name "contoso" `
   --table-name "employees"
+
+python metric_monitor_launcher.py `
+  --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/24bc8931-db5e-4a59-afd9-74e8182b454b" `
+  --schema-name "contoso" `
+  --table-name "employees" `
+  --metrics "latest_delta_committed_file_landing_zone_max_timestamp,lag_seconds_parquet_file_landing_zone_to_parquet_file_table,lag_seconds_parquet_file_landing_zone_to_delta_committed_file" `
+  --poll 30 `
+  --port 8501
 ```
 
 
