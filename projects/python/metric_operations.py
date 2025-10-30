@@ -310,19 +310,78 @@ class MetricOperationsClient:
 
     def get_metric(self, metric_name: str, schema_name: str, table_name: str) -> Any:
         """
-        Get a specific metric by name.
+        Get a specific metric by name - efficiently calculates only the requested metric.
 
         :param metric_name: Name of the metric to calculate
         :param schema_name: Schema name for the table
         :param table_name: Table name
         :return: The calculated metric value
         """
-        all_metrics = self.get_all_metrics(schema_name, table_name)
+        landing_zone_metrics = [
+            "latest_parquet_file_landing_zone_size_mb",
+            "latest_parquet_file_landing_zone_name", 
+            "latest_parquet_file_landing_zone_last_modified",
+            "latest_parquet_file_landing_zone_max_timestamp"
+        ]
         
-        if metric_name in all_metrics:
-            return all_metrics[metric_name]
+        tables_metrics = [
+            "latest_parquet_file_tables_size_mb",
+            "latest_parquet_file_tables_name",
+            "latest_parquet_file_tables_last_modified", 
+            "latest_parquet_file_tables_max_timestamp"
+        ]
+        
+        delta_metrics = [
+            "latest_delta_committed_file_size_mb",
+            "latest_delta_committed_file_name",
+            "latest_delta_committed_file_last_modified",
+            "latest_delta_committed_file_landing_zone_max_timestamp"
+        ]
+        
+        lag_metrics = [
+            "lag_seconds_parquet_file_landing_zone_to_parquet_file_table",
+            "lag_seconds_parquet_file_landing_zone_to_delta_committed_file", 
+            "lag_seconds_max_timestamp_parquet_file_landing_zone_to_parquet_file_table",
+            "lag_seconds_max_timestamp_parquet_file_landing_zone_to_delta_committed_file"
+        ]
+        
+        # Calculate only the required category/categories
+        if metric_name in landing_zone_metrics:
+            metrics = self.calculate_landing_zone_metrics(schema_name, table_name)
+            return metrics.get(metric_name)
+            
+        elif metric_name in tables_metrics:
+            metrics = self.calculate_tables_metrics(schema_name, table_name)
+            return metrics.get(metric_name)
+            
+        elif metric_name in delta_metrics:
+            metrics = self.calculate_delta_metrics(schema_name, table_name)
+            return metrics.get(metric_name)
+            
+        elif metric_name in lag_metrics:
+            # Lag metrics require data from multiple categories
+            # Calculate only the minimum required metrics
+            lz_metrics = None
+            tables_metrics_data = None
+            delta_metrics_data = None
+            
+            if "landing_zone_to_parquet_file_table" in metric_name:
+                lz_metrics = self.calculate_landing_zone_metrics(schema_name, table_name)
+                tables_metrics_data = self.calculate_tables_metrics(schema_name, table_name)
+                
+            elif "landing_zone_to_delta_committed_file" in metric_name:
+                lz_metrics = self.calculate_landing_zone_metrics(schema_name, table_name)
+                delta_metrics_data = self.calculate_delta_metrics(schema_name, table_name)
+            
+            lz_metrics = lz_metrics or {}
+            tables_metrics_data = tables_metrics_data or {}
+            delta_metrics_data = delta_metrics_data or {}
+            
+            lag_metrics_result = self.calculate_lag_metrics(lz_metrics, tables_metrics_data, delta_metrics_data)
+            return lag_metrics_result.get(metric_name)
+            
         else:
-            raise ValueError(f"Unknown metric: {metric_name}")
+            raise ValueError(f"Unknown metric: {metric_name}. Available metrics: {self.get_available_metrics()}")
 
     def get_all_metrics(self, schema_name: str, table_name: str) -> Dict[str, Any]:
         """

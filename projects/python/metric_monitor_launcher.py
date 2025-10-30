@@ -14,6 +14,12 @@ import subprocess
 import sys
 import argparse
 import os
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Open Mirroring Metrics Monitor Launcher")
@@ -57,6 +63,7 @@ def parse_args():
     return parser.parse_args()
 
 def main():
+    logger = logging.getLogger(__name__)
     args = parse_args()
     
     # Get the directory where this script is located
@@ -75,24 +82,24 @@ def main():
         "--metrics", args.metrics
     ]
     
-    print(f"Starting Streamlit app with the following configuration:")
-    print(f"  Host: {args.host_root_fqdn}")
-    print(f"  Schema: {args.schema_name}")
-    print(f"  Table: {args.table_name}")
-    print(f"  Poll Interval: {args.poll}s")
-    print(f"  Metrics: {args.metrics}")
-    print(f"  Port: {args.port}")
-    print(f"\nRunning command: {' '.join(cmd)}")
-    print(f"\nStreamlit app will be available at: http://localhost:{args.port}")
-    print("Press Ctrl+C to stop the application")
+    logger.info("Starting Streamlit app with the following configuration:")
+    logger.info(f"  Host: {args.host_root_fqdn}")
+    logger.info(f"  Schema: {args.schema_name}")
+    logger.info(f"  Table: {args.table_name}")
+    logger.info(f"  Poll Interval: {args.poll}s")
+    logger.info(f"  Metrics: {args.metrics}")
+    logger.info(f"  Port: {args.port}")
+    logger.info(f"Running command: {' '.join(cmd)}")
+    logger.info(f"Streamlit app will be available at: http://localhost:{args.port}")
+    logger.info("Press Ctrl+C to stop the application")
     
     try:
         # Run the Streamlit app
         subprocess.run(cmd, check=True)
     except KeyboardInterrupt:
-        print("\nApplication stopped by user")
+        logger.info("Application stopped by user")
     except subprocess.CalledProcessError as e:
-        print(f"Error running Streamlit app: {e}")
+        logger.error(f"Error running Streamlit app: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
