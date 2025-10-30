@@ -128,7 +128,7 @@ def collect_and_store_metrics():
             INSERT INTO metrics_data 
             (timestamp, schema_name, table_name, metric_name, metric_value, metric_value_numeric)
             VALUES (?, ?, ?, ?, ?, ?)
-        """, [current_time, schema_name, table_name, "metric_collection_time", f"{collection_duration:.2f}s", collection_duration])
+        """, [current_time, schema_name, table_name, "metric_collection_duration", f"{collection_duration:.2f}s", collection_duration])
         
         conn.execute("""
             DELETE FROM metrics_data 
@@ -147,7 +147,8 @@ def format_metric_name(metric_name):
 def get_combined_metrics_data(hours=24):
     """Get historical data for all specified metrics combined."""
     conn = get_db_connection()
-    placeholders = ','.join(['?' for _ in metrics_to_plot])
+    metrics_to_plot_with_duration = metrics_to_plot + ["metric_collection_duration"]
+    placeholders = ','.join(['?' for _ in metrics_to_plot_with_duration])
     
     df = conn.execute(f"""
         SELECT timestamp, metric_name, metric_value, metric_value_numeric
@@ -157,7 +158,7 @@ def get_combined_metrics_data(hours=24):
         AND table_name = ?
         AND timestamp >= now() - INTERVAL {hours} HOUR
         ORDER BY timestamp ASC, metric_name
-    """, metrics_to_plot + [schema_name, table_name]).fetchdf()
+    """, metrics_to_plot_with_duration + [schema_name, table_name]).fetchdf()
     
     return df
 
