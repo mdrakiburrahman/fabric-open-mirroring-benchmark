@@ -80,7 +80,7 @@ python metric_monitor_launcher.py `
   --host-root-fqdns "https://msit-onelake.dfs.fabric.microsoft.com/81c0bc17-7c2d-4ad4-9f00-47c7b126d80d/b374c99c-04df-4a57-b1ff-04174e75dbfe,https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/24bc8931-db5e-4a59-afd9-74e8182b454b" `
   --schema-names "direct_staging_on,direct_staging_off" `
   --table-names "employees,employees" `
-  --metrics "lag_seconds_max_timestamp_parquet_file_landing_zone_to_parquet_file_table,lag_seconds_max_timestamp_parquet_file_landing_zone_to_delta_committed_file" `
+  --metrics "lag_seconds_max_timestamp_parquet_file_landing_zone_to_delta_committed_file" `
   --poll 30 `
   --port 8501
 ```
