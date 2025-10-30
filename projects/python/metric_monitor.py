@@ -24,14 +24,12 @@ host_root_fqdns = args.get('--host-root-fqdns', 'https://msit-onelake.dfs.fabric
 schema_names = args.get('--schema-names', 'microsoft').split(',')
 table_names = args.get('--table-names', 'employees').split(',')
 poll_interval = int(args.get('--poll', 30))
-metrics_to_plot = args.get('--metrics', 'latest_parquet_file_landing_zone_size_mb,latest_parquet_file_tables_size_mb,latest_delta_committed_file_size_mb').split(',')
+metrics_to_plot = args.get('--metrics', 'lag_seconds_max_timestamp_parquet_file_landing_zone_to_delta_committed_file').split(',')
 
-# Validate that all lists have the same length
 if len(host_root_fqdns) != len(schema_names) or len(schema_names) != len(table_names):
     st.error(f"Number of host FQDNs ({len(host_root_fqdns)}), schema names ({len(schema_names)}), and table names ({len(table_names)}) must all match")
     st.stop()
 
-# Create host-schema-table triplets
 host_schema_table_triplets = list(zip(host_root_fqdns, schema_names, table_names))
 schema_table_pairs = list(zip(schema_names, table_names))
 

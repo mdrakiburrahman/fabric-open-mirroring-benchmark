@@ -68,11 +68,9 @@ def main():
     logger = logging.getLogger(__name__)
     args = parse_args()
     
-    # Get the directory where this script is located
     script_dir = os.path.dirname(os.path.abspath(__file__))
     streamlit_app = os.path.join(script_dir, "metric_monitor.py")
     
-    # Build the command to run Streamlit
     cmd = [
         sys.executable, "-m", "streamlit", "run", streamlit_app,
         "--server.port", str(args.port),

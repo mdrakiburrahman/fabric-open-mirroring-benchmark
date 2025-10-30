@@ -4,7 +4,7 @@
 import duckdb
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from openmirroring_operations import OpenMirroringClient
 
@@ -438,9 +438,7 @@ class MetricOperationsClient:
                 return abs(lag) if lag is not None else "Not available"
                 
             elif metric_name == "lag_seconds_max_timestamp_parquet_file_landing_zone_to_delta_committed_file":
-                lz_file = self.mirroring_client.get_latest_parquet_file_landing_zone(schema_name=schema_name, table_name=table_name)
-                lz_full_path = f"Files/LandingZone/{schema_name}.schema/{table_name}/{lz_file}"
-                lz_max_timestamp = self.get_max_writer_timestamp(lz_full_path)
+                current_utc_timestamp = datetime.now(timezone.utc)
                 
                 delta_files = self.mirroring_client.get_latest_delta_committed_file(schema_name=schema_name, table_name=table_name)
                 if delta_files:
@@ -462,7 +460,7 @@ class MetricOperationsClient:
                     
                     if max_timestamps:
                         delta_max_timestamp = max(max_timestamps)
-                        lag = self.calculate_lag_seconds(lz_max_timestamp, delta_max_timestamp)
+                        lag = self.calculate_lag_seconds(current_utc_timestamp, delta_max_timestamp)
                         return abs(lag) if lag is not None else "Not available"
                 
                 return "Not available"
