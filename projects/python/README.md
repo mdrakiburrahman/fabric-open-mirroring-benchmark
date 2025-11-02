@@ -45,7 +45,7 @@ COPY (
 "@
 
 python write.py `
-  --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/24bc8931-db5e-4a59-afd9-74e8182b454b" `
+  --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/706f0686-1cda-4069-8c18-647f530b603e" `
   --schema-name "direct_staging_off" `
   --table-name "employees" `
   --key-cols "EmployeeID" `
@@ -57,7 +57,7 @@ python write.py `
   --custom-sql $PARUQET_GENERATOR_QUERY
 
 python write.py `
-  --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/81c0bc17-7c2d-4ad4-9f00-47c7b126d80d/b374c99c-04df-4a57-b1ff-04174e75dbfe" `
+  --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/81c0bc17-7c2d-4ad4-9f00-47c7b126d80d/dbf986a3-f739-466f-a22e-c7781f768e16" `
   --schema-name "direct_staging_on" `
   --table-name "employees" `
   --key-cols "EmployeeID" `
@@ -73,14 +73,14 @@ Get metrics:
 
 ```powershell
 python metric.py `
-  --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/24bc8931-db5e-4a59-afd9-74e8182b454b" `
+  --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/706f0686-1cda-4069-8c18-647f530b603e" `
   --schema-name "direct_staging_off" `
   --table-name "employees" `
   --fabric-sql-connection-string "Driver={ODBC Driver 18 for SQL Server};Server=x6eps4xrq2xudenlfv6naeo3i4-2aarsbuljwiuzn4pf4irrh7fga.msit-datawarehouse.fabric.microsoft.com;Database=open_mirroring_benchmark;Encrypt=yes;TrustServerCertificate=no;" `
   --fabric-sql-database-name "open_mirroring_benchmark"
 
 python metric_monitor_launcher.py `
-  --host-root-fqdns "https://msit-onelake.dfs.fabric.microsoft.com/81c0bc17-7c2d-4ad4-9f00-47c7b126d80d/b374c99c-04df-4a57-b1ff-04174e75dbfe,https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/24bc8931-db5e-4a59-afd9-74e8182b454b" `
+  --host-root-fqdns "https://msit-onelake.dfs.fabric.microsoft.com/81c0bc17-7c2d-4ad4-9f00-47c7b126d80d/dbf986a3-f739-466f-a22e-c7781f768e16,https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/706f0686-1cda-4069-8c18-647f530b603e" `
   --schema-names "direct_staging_on,direct_staging_off" `
   --table-names "employees,employees" `
   --metrics "lag_seconds_delta_committed_sql_endpoint" `
@@ -94,15 +94,15 @@ In SQL Endpoint, get the lag via:
 
 ```sql
 SELECT MIN(DATEDIFF(SECOND, [WriterTimestamp], SYSUTCDATETIME())) AS LastWriteAgoInSeconds
-FROM [open_mirroring_benchmark_1].[microsoft].[employees];
+FROM [open_mirroring_benchmark].[microsoft].[employees];
 ```
 
 And in the Monitoring KQL database, get errors via:
 
 ```kql
 MirroredDatabaseTableExecutionLogs
-| where ItemName == 'open_mirroring_benchmark_1'
-| where SourceSchemaName == 'microsoft'
+| where ItemName == 'open_mirroring_benchmark'
+| where SourceSchemaName == 'direct_staging_on'
 | where SourceTableName == 'employees'
 | order by Timestamp desc 
 | extend SecondsAgo = datetime_diff('second', now(), Timestamp)
