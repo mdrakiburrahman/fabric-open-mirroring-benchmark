@@ -3,6 +3,7 @@
 ## References
 
 * [Python SDK of Microsoft Fabric Open Mirroring](https://github.com/microsoft/fabric-toolbox/tree/main/tools/OpenMirroringPythonSDK)
+* [ODBC driver installed for Fabric SQL](https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server?view=sql-server-ver16).
 
 ## Run in Windows
 
@@ -74,17 +75,20 @@ Get metrics:
 python metric.py `
   --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/24bc8931-db5e-4a59-afd9-74e8182b454b" `
   --schema-name "direct_staging_off" `
-  --table-name "employees"
+  --table-name "employees" `
+  --fabric-sql-connection-string "Driver={ODBC Driver 18 for SQL Server};Server=x6eps4xrq2xudenlfv6naeo3i4-2aarsbuljwiuzn4pf4irrh7fga.msit-datawarehouse.fabric.microsoft.com;Database=open_mirroring_benchmark;Encrypt=yes;TrustServerCertificate=no;" `
+  --fabric-sql-database-name "open_mirroring_benchmark"
 
 python metric_monitor_launcher.py `
   --host-root-fqdns "https://msit-onelake.dfs.fabric.microsoft.com/81c0bc17-7c2d-4ad4-9f00-47c7b126d80d/b374c99c-04df-4a57-b1ff-04174e75dbfe,https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/24bc8931-db5e-4a59-afd9-74e8182b454b" `
   --schema-names "direct_staging_on,direct_staging_off" `
   --table-names "employees,employees" `
-  --metrics "lag_seconds_max_timestamp_parquet_file_landing_zone_to_delta_committed_file" `
+  --metrics "lag_seconds_delta_committed_sql_endpoint" `
+  --fabric-sql-connection-string-base64s "RHJpdmVyPXtPREJDIERyaXZlciAxOCBmb3IgU1FMIFNlcnZlcn07U2VydmVyPXg2ZXBzNHhycTJ4dWRlbmxmdjZuYWVvM2k0LWM2Nm1iYWpucHRrZXZoeWFpN2QzY2p3eWJ1Lm1zaXQtZGF0YXdhcmVob3VzZS5mYWJyaWMubWljcm9zb2Z0LmNvbTtEYXRhYmFzZT1vcGVuX21pcnJvcmluZ19iZW5jaG1hcms7RW5jcnlwdD15ZXM7VHJ1c3RTZXJ2ZXJDZXJ0aWZpY2F0ZT1ubzs=,RHJpdmVyPXtPREJDIERyaXZlciAxOCBmb3IgU1FMIFNlcnZlcn07U2VydmVyPXg2ZXBzNHhycTJ4dWRlbmxmdjZuYWVvM2k0LTJhYXJzYnVsandpdXpuNHBmNGlycmg3ZmdhLm1zaXQtZGF0YXdhcmVob3VzZS5mYWJyaWMubWljcm9zb2Z0LmNvbTtEYXRhYmFzZT1vcGVuX21pcnJvcmluZ19iZW5jaG1hcms7RW5jcnlwdD15ZXM7VHJ1c3RTZXJ2ZXJDZXJ0aWZpY2F0ZT1ubzs=" `
+  --fabric-sql-database-name "open_mirroring_benchmark,open_mirroring_benchmark" `
   --poll 30 `
   --port 8501
 ```
-
 
 In SQL Endpoint, get the lag via:
 

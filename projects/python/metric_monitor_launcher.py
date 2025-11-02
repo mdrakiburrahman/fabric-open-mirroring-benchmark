@@ -18,70 +18,31 @@ import argparse
 import os
 import logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Open Mirroring Metrics Monitor Launcher")
-    parser.add_argument(
-        "--host-root-fqdns", 
-        type=str, 
-        required=True, 
-        help="Comma-separated list of Host Root FQDNs ending with GUID, corresponding to each schema (e.g. 'https://msit-onelake.dfs.fabric.microsoft.com/.../guid1,https://msit-onelake.dfs.fabric.microsoft.com/.../guid2')"
-    )
-    parser.add_argument(
-        "--schema-names", 
-        type=str, 
-        required=True, 
-        help="Comma-separated list of schema names (e.g. 'microsoft,contoso')"
-    )
-    parser.add_argument(
-        "--table-names", 
-        type=str, 
-        required=True, 
-        help="Comma-separated list of table names, corresponding to schema names (e.g. 'employees,products')"
-    )
-    parser.add_argument(
-        "--poll", 
-        type=int, 
-        default=30, 
-        help="Poll interval in seconds (default: 30)"
-    )
-    parser.add_argument(
-        "--metrics", 
-        type=str, 
-        default="latest_parquet_file_landing_zone_size_mb,latest_parquet_file_tables_size_mb,latest_delta_committed_file_size_mb",
-        help="Comma-separated list of metrics to plot (default: size metrics)"
-    )
-    parser.add_argument(
-        "--port", 
-        type=int, 
-        default=8501, 
-        help="Streamlit port (default: 8501)"
-    )
-    
+    parser.add_argument("--host-root-fqdns", type=str, required=True, help="Comma-separated list of Host Root FQDNs ending with GUID, corresponding to each schema (e.g. 'https://msit-onelake.dfs.fabric.microsoft.com/.../guid1,https://msit-onelake.dfs.fabric.microsoft.com/.../guid2')")
+    parser.add_argument("--schema-names", type=str, required=True, help="Comma-separated list of schema names (e.g. 'microsoft,contoso')")
+    parser.add_argument("--table-names", type=str, required=True, help="Comma-separated list of table names, corresponding to schema names (e.g. 'employees,products')")
+    parser.add_argument("--poll", type=int, default=30, help="Poll interval in seconds (default: 30)")
+    parser.add_argument("--metrics", type=str, default="latest_parquet_file_landing_zone_size_mb,latest_parquet_file_tables_size_mb,latest_delta_committed_file_size_mb", help="Comma-separated list of metrics to plot (default: size metrics)")
+    parser.add_argument("--port", type=int, default=8501, help="Streamlit port (default: 8501)")
+    parser.add_argument("--fabric-sql-connection-string-base64s", type=str, required=True, help="Comma-separated base64-encoded Fabric SQL connection strings, one per host. Use base64 encoding for each connection string.")
+    parser.add_argument("--fabric-sql-database-name", type=str, required=True, help="Comma-separated Fabric SQL database names, one per host.")
     return parser.parse_args()
+
 
 def main():
     logger = logging.getLogger(__name__)
     args = parse_args()
-    
+
     script_dir = os.path.dirname(os.path.abspath(__file__))
     streamlit_app = os.path.join(script_dir, "metric_monitor.py")
-    
-    cmd = [
-        sys.executable, "-m", "streamlit", "run", streamlit_app,
-        "--server.port", str(args.port),
-        "--",
-        "--host-root-fqdns", args.host_root_fqdns,
-        "--schema-names", args.schema_names,
-        "--table-names", args.table_names,
-        "--poll", str(args.poll),
-        "--metrics", args.metrics
-    ]
-    
+
+    cmd = [sys.executable, "-m", "streamlit", "run", streamlit_app, "--server.port", str(args.port), "--", "--host-root-fqdns", args.host_root_fqdns, "--schema-names", args.schema_names, "--table-names", args.table_names, "--poll", str(args.poll), "--metrics", args.metrics, "--fabric-sql-connection-string-base64s", args.fabric_sql_connection_string_base64s, "--fabric-sql-database-name", args.fabric_sql_database_name]
+
     logger.info("Starting Streamlit app with the following configuration:")
     logger.info(f"  Hosts: {args.host_root_fqdns}")
     logger.info(f"  Schemas: {args.schema_names}")
@@ -89,10 +50,12 @@ def main():
     logger.info(f"  Poll Interval: {args.poll}s")
     logger.info(f"  Metrics: {args.metrics}")
     logger.info(f"  Port: {args.port}")
+    logger.info(f"  Fabric SQL Connection String Base64s: {args.fabric_sql_connection_string_base64s}")
+    logger.info(f"  Fabric SQL Database Names: {args.fabric_sql_database_name}")
     logger.info(f"Running command: {' '.join(cmd)}")
     logger.info(f"Streamlit app will be available at: http://localhost:{args.port}")
     logger.info("Press Ctrl+C to stop the application")
-    
+
     try:
         subprocess.run(cmd, check=True)
     except KeyboardInterrupt:
@@ -100,6 +63,7 @@ def main():
     except subprocess.CalledProcessError as e:
         logger.error(f"Error running Streamlit app: {e}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
