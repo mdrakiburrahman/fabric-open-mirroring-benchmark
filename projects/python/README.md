@@ -38,8 +38,7 @@ COPY (
             WHEN RANDOM() < 0.75 THEN 'Bellevue'
             WHEN RANDOM() < 0.90 THEN 'Toronto'
             ELSE 'Kirkland'
-        END AS EmployeeLocation,
-        0 AS __rowMarker__
+        END AS EmployeeLocation
     FROM generate_series(1, {num_rows})
 ) TO '{parquet_path}'
 "@
@@ -47,8 +46,8 @@ COPY (
 python write.py `
   --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/706f0686-1cda-4069-8c18-647f530b603e" `
   --schema-name "direct_staging_off" `
-  --table-name "employees" `
-  --key-cols "EmployeeID" `
+  --table-name "employees_no_marker_no_keys" `
+  --key-cols "" `
   --interval 0 `
   --duration 300000 `
   --concurrent-writers 16 `
@@ -59,8 +58,8 @@ python write.py `
 python write.py `
   --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/81c0bc17-7c2d-4ad4-9f00-47c7b126d80d/dbf986a3-f739-466f-a22e-c7781f768e16" `
   --schema-name "direct_staging_on" `
-  --table-name "employees" `
-  --key-cols "EmployeeID" `
+  --table-name "employees_no_marker_no_keys" `
+  --key-cols "" `
   --interval 0 `
   --duration 300000 `
   --concurrent-writers 16 `
@@ -75,14 +74,14 @@ Get metrics:
 python metric.py `
   --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/706f0686-1cda-4069-8c18-647f530b603e" `
   --schema-name "direct_staging_off" `
-  --table-name "employees" `
+  --table-name "employees_no_marker_no_keys" `
   --fabric-sql-connection-string "Driver={ODBC Driver 18 for SQL Server};Server=x6eps4xrq2xudenlfv6naeo3i4-2aarsbuljwiuzn4pf4irrh7fga.msit-datawarehouse.fabric.microsoft.com;Database=open_mirroring_benchmark;Encrypt=yes;TrustServerCertificate=no;" `
   --fabric-sql-database-name "open_mirroring_benchmark"
 
 python metric_monitor_launcher.py `
   --host-root-fqdns "https://msit-onelake.dfs.fabric.microsoft.com/81c0bc17-7c2d-4ad4-9f00-47c7b126d80d/dbf986a3-f739-466f-a22e-c7781f768e16,https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/706f0686-1cda-4069-8c18-647f530b603e" `
   --schema-names "direct_staging_on,direct_staging_off" `
-  --table-names "employees,employees" `
+  --table-names "employees_no_marker_no_keys,employees_no_marker_no_keys" `
   --metrics "lag_seconds_delta_committed_sql_endpoint" `
   --fabric-sql-connection-string-base64s "RHJpdmVyPXtPREJDIERyaXZlciAxOCBmb3IgU1FMIFNlcnZlcn07U2VydmVyPXg2ZXBzNHhycTJ4dWRlbmxmdjZuYWVvM2k0LWM2Nm1iYWpucHRrZXZoeWFpN2QzY2p3eWJ1Lm1zaXQtZGF0YXdhcmVob3VzZS5mYWJyaWMubWljcm9zb2Z0LmNvbTtEYXRhYmFzZT1vcGVuX21pcnJvcmluZ19iZW5jaG1hcms7RW5jcnlwdD15ZXM7VHJ1c3RTZXJ2ZXJDZXJ0aWZpY2F0ZT1ubzs=,RHJpdmVyPXtPREJDIERyaXZlciAxOCBmb3IgU1FMIFNlcnZlcn07U2VydmVyPXg2ZXBzNHhycTJ4dWRlbmxmdjZuYWVvM2k0LTJhYXJzYnVsandpdXpuNHBmNGlycmg3ZmdhLm1zaXQtZGF0YXdhcmVob3VzZS5mYWJyaWMubWljcm9zb2Z0LmNvbTtEYXRhYmFzZT1vcGVuX21pcnJvcmluZ19iZW5jaG1hcms7RW5jcnlwdD15ZXM7VHJ1c3RTZXJ2ZXJDZXJ0aWZpY2F0ZT1ubzs=" `
   --fabric-sql-database-name "open_mirroring_benchmark,open_mirroring_benchmark" `
