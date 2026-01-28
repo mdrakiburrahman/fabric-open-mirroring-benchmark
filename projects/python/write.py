@@ -15,7 +15,7 @@ import uuid
 from azure.identity import AzureCliCredential
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from openmirroring_operations import OpenMirroringClient
+from openmirroring_operations import OpenMirroringClient, FileDetectionStrategy
 from tabulate import tabulate
 
 logging.basicConfig(
@@ -164,6 +164,7 @@ def writer_task(
     interval: int,
     stop_event: threading.Event,
     custom_sql_template: str,
+    file_detection_strategy: FileDetectionStrategy,
 ) -> int:
     logger = logging.getLogger(f"writer_{writer_id}")
     writer_uploads = 0
@@ -182,11 +183,18 @@ def writer_task(
             parquet_file_path = generate_parquet_file(num_rows, custom_sql_template)
             try:
                 upload_start_time = time.time()
-                mirroring_client.upload_data_file(
-                    schema_name=schema_name,
-                    table_name=table_name,
-                    local_file_path=parquet_file_path,
-                )
+                if file_detection_strategy == FileDetectionStrategy.LAST_UPDATE_TIME_FILE_DETECTION:
+                    mirroring_client.upload_data_file_direct(
+                        schema_name=schema_name,
+                        table_name=table_name,
+                        local_file_path=parquet_file_path,
+                    )
+                else:
+                    mirroring_client.upload_data_file(
+                        schema_name=schema_name,
+                        table_name=table_name,
+                        local_file_path=parquet_file_path,
+                    )
                 upload_duration = time.time() - upload_start_time
                 writer_uploads += 1
 
@@ -223,6 +231,7 @@ def parse_args():
     parser.add_argument("--num-rows", type=int, default=100, help="Number of rows to generate in each parquet file (default: 100).")
     parser.add_argument("--timeout", type=int, default=60, help="Timeout in seconds for waiting for worker threads to complete (default: 60).")
     parser.add_argument("--custom-sql", type=str, help="Custom SQL query template with {num_rows} and {parquet_path} placeholders for string replacement.")
+    parser.add_argument("--file-detection-strategy", type=str, default="SequentialFileName", choices=["SequentialFileName", "LastUpdateTimeFileDetection"], help="File detection strategy: 'SequentialFileName' (default) uses _Temp folder with sequential rename, 'LastUpdateTimeFileDetection' writes directly with GUID filename.")
 
     return parser.parse_args()
 
@@ -236,8 +245,9 @@ def main():
     credential = AzureCliCredential()
     mirroringClient = OpenMirroringClient(credential=credential, host=args.host_root_fqdn, logger=logger)
 
-    logger.info(f"Creating table '{args.table_name}' in schema '{args.schema_name}' with key columns: {args.key_cols}")
-    mirroringClient.create_table(schema_name=args.schema_name, table_name=args.table_name, key_cols=args.key_cols)
+    logger.info(f"Creating table '{args.table_name}' in schema '{args.schema_name}' with key columns: {args.key_cols}, file detection strategy: {args.file_detection_strategy}")
+    file_detection_strategy = FileDetectionStrategy(args.file_detection_strategy)
+    mirroringClient.create_table(schema_name=args.schema_name, table_name=args.table_name, key_cols=args.key_cols, file_detection_strategy=file_detection_strategy)
 
     duration_text = f"for {args.duration} seconds" if args.duration > 0 else "indefinitely"
     logger.info(f"Starting concurrent upload mode with {args.concurrent_writers} writers, {args.interval} second intervals, running {duration_text}. Press Ctrl+C to stop.")
@@ -269,6 +279,7 @@ def main():
                     interval=args.interval,
                     stop_event=stop_event,
                     custom_sql_template=args.custom_sql,
+                    file_detection_strategy=file_detection_strategy,
                 )
                 futures.append(future)
 

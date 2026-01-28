@@ -9,11 +9,19 @@ import uuid
 import re
 import time
 from datetime import datetime, timedelta
+from enum import Enum
 
 from azure.core.credentials import TokenCredential
 from azure.storage.filedatalake import DataLakeServiceClient
 from deltalake import DeltaTable
 from typing import List, Dict, Any
+
+
+class FileDetectionStrategy(Enum):
+    """Enum for file detection strategies in Open Mirroring."""
+
+    SEQUENTIAL_FILE_NAME = "SequentialFileName"
+    LAST_UPDATE_TIME_FILE_DETECTION = "LastUpdateTimeFileDetection"
 
 
 class OpenMirroringClient:
@@ -75,7 +83,7 @@ class OpenMirroringClient:
 
         return self._cached_token
 
-    def create_table(self, schema_name: str = None, table_name: str = "", key_cols: list = []):
+    def create_table(self, schema_name: str = None, table_name: str = "", key_cols: list = [], file_detection_strategy: FileDetectionStrategy = FileDetectionStrategy.SEQUENTIAL_FILE_NAME):
         """
         Creates a folder in OneLake storage and a _metadata.json file inside it.
         This method is idempotent - if the table already exists, it will not recreate it.
@@ -83,6 +91,7 @@ class OpenMirroringClient:
         :param schema_name: Optional schema name.
         :param table_name: Name of the table.
         :param key_cols: List of key column names.
+        :param file_detection_strategy: File detection strategy.
         """
         if not table_name:
             raise ValueError("table_name cannot be empty.")
@@ -103,6 +112,10 @@ class OpenMirroringClient:
                 self.logger.debug(f"Directory created at: {folder_path}")
 
             metadata_content = {"keyColumns": [f"{col}" for col in key_cols]}
+            if file_detection_strategy == FileDetectionStrategy.LAST_UPDATE_TIME_FILE_DETECTION:
+                metadata_content["fileDetectionStrategy"] = "LastUpdateTimeFileDetection"
+                metadata_content["isUpsertDefaultRowMarker"] = False
+
             file_client = directory_client.create_file("_metadata.json")
             file_client.append_data(
                 data=json.dumps(metadata_content),
@@ -275,6 +288,46 @@ class OpenMirroringClient:
 
         except Exception as e:
             raise Exception(f"Failed to upload data file: {e}")
+
+    def upload_data_file_direct(
+        self,
+        schema_name: str = None,
+        table_name: str = "",
+        local_file_path: str = "",
+    ):
+        """
+        Uploads a file directly to OneLake storage with a GUID filename.
+        Used for LastUpdateTimeFileDetection strategy - no _Temp folder or sequential renaming.
+
+        :param schema_name: Optional schema name.
+        :param table_name: Name of the table.
+        :param local_file_path: Path to the local file to be uploaded.
+        """
+        if not table_name:
+            raise ValueError("table_name cannot be empty.")
+        if not local_file_path or not os.path.isfile(local_file_path):
+            raise ValueError("Invalid local file path.")
+
+        folder_path = f"{schema_name}.schema/{table_name}" if schema_name else f"{table_name}"
+
+        try:
+            file_system_client = self.service_client.get_file_system_client(file_system="Files")
+            directory_client = file_system_client.get_directory_client(f"LandingZone/{folder_path}")
+
+            if not directory_client.exists():
+                raise FileNotFoundError(f"Folder '{folder_path}' not found.")
+
+            guid_file_name = f"{uuid.uuid4()}.parquet"
+            file_client = directory_client.create_file(guid_file_name)
+            with open(local_file_path, "rb") as file_data:
+                file_contents = file_data.read()
+                file_client.append_data(data=file_contents, offset=0, length=len(file_contents))
+                file_client.flush_data(len(file_contents))
+
+            self.logger.debug(f"File uploaded directly as '{guid_file_name}' to {folder_path}.")
+
+        except Exception as e:
+            raise Exception(f"Failed to upload data file directly: {e}")
 
     def rename_file(self, source_folder_path: str, old_file_name: str, dest_folder_path: str, new_file_name: str) -> bool:
         """
