@@ -44,27 +44,16 @@ COPY (
 "@
 
 python write.py `
-  --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/061901d0-4d8b-4c91-b78f-2f11189fe530/706f0686-1cda-4069-8c18-647f530b603e" `
-  --schema-name "direct_staging_off" `
-  --table-name "employees_no_marker_no_keys" `
-  --key-cols "" `
-  --interval 0 `
-  --duration 300000 `
-  --concurrent-writers 16 `
-  --num-rows 625000 `
-  --timeout 60 `
-  --custom-sql $PARUQET_GENERATOR_QUERY
-
-python write.py `
-  --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/81c0bc17-7c2d-4ad4-9f00-47c7b126d80d/dbf986a3-f739-466f-a22e-c7781f768e16" `
+  --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/b6d561c2-5df2-4161-90ef-2b1532ab6642/3fa4eb00-6d29-49ab-8cea-1df7c26aea3a" `
   --schema-name "direct_staging_on" `
   --table-name "employees_no_marker_no_keys" `
   --key-cols "" `
   --interval 0 `
   --duration 300000 `
   --concurrent-writers 16 `
-  --num-rows 625000 `
+  --num-rows 6250000 `
   --timeout 60 `
+  --file-detection-strategy "LastUpdateTimeFileDetection" `
   --custom-sql $PARUQET_GENERATOR_QUERY
 ```
 
