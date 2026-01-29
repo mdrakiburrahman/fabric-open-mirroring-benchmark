@@ -23,6 +23,53 @@ logging.basicConfig(
     format="%(asctime)s - [%(module)s.%(funcName)s:%(lineno)d] - %(levelname)s - %(message)s",
 )
 
+
+def get_year_month_date() -> str:
+    """
+    Returns the current system date formatted as YYYYMMDD.
+
+    :return: Current date string in YYYYMMDD format.
+    """
+    return datetime.now().strftime("%Y%m%d")
+
+
+# Map of function names to their implementations for partition value evaluation
+PARTITION_FUNCTIONS = {
+    "get_year_month_date": get_year_month_date,
+}
+
+
+def build_partition_path(partition_json: dict) -> str:
+    """
+    Build a partition path from a partition JSON dictionary.
+
+    Values can be:
+    - Static strings (e.g., "2")
+    - Function references (e.g., "get_year_month_date()")
+
+    :param partition_json: Dictionary mapping partition column names to values or function references.
+    :return: Partition path string (e.g., "YearMonthDate=20260128/Foo=2") or empty string if no partitions.
+    """
+    if not partition_json:
+        return ""
+
+    path_parts = []
+    for key, value in partition_json.items():
+        # Check if value is a function reference (ends with "()")
+        if isinstance(value, str) and value.endswith("()"):
+            func_name = value[:-2]  # Remove the "()"
+            if func_name in PARTITION_FUNCTIONS:
+                evaluated_value = PARTITION_FUNCTIONS[func_name]()
+            else:
+                raise ValueError(f"Unknown partition function: {func_name}")
+        else:
+            evaluated_value = str(value)
+
+        path_parts.append(f"{key}={evaluated_value}")
+
+    return "/".join(path_parts)
+
+
 logging.getLogger(__name__).setLevel(logging.INFO)
 logging.getLogger("openmirroring_operations").setLevel(logging.INFO)
 
@@ -165,6 +212,7 @@ def writer_task(
     stop_event: threading.Event,
     custom_sql_template: str,
     file_detection_strategy: FileDetectionStrategy,
+    partition_json: dict,
 ) -> int:
     logger = logging.getLogger(f"writer_{writer_id}")
     writer_uploads = 0
@@ -183,17 +231,20 @@ def writer_task(
             parquet_file_path = generate_parquet_file(num_rows, custom_sql_template)
             try:
                 upload_start_time = time.time()
+                partition_path = build_partition_path(partition_json)
                 if file_detection_strategy == FileDetectionStrategy.LAST_UPDATE_TIME_FILE_DETECTION:
                     mirroring_client.upload_data_file_direct(
                         schema_name=schema_name,
                         table_name=table_name,
                         local_file_path=parquet_file_path,
+                        partition_path=partition_path,
                     )
                 else:
                     mirroring_client.upload_data_file(
                         schema_name=schema_name,
                         table_name=table_name,
                         local_file_path=parquet_file_path,
+                        partition_path=partition_path,
                     )
                 upload_duration = time.time() - upload_start_time
                 writer_uploads += 1
@@ -232,6 +283,7 @@ def parse_args():
     parser.add_argument("--timeout", type=int, default=60, help="Timeout in seconds for waiting for worker threads to complete (default: 60).")
     parser.add_argument("--custom-sql", type=str, help="Custom SQL query template with {num_rows} and {parquet_path} placeholders for string replacement.")
     parser.add_argument("--file-detection-strategy", type=str, default="SequentialFileName", choices=["SequentialFileName", "LastUpdateTimeFileDetection"], help="File detection strategy: 'SequentialFileName' (default) uses _Temp folder with sequential rename, 'LastUpdateTimeFileDetection' writes directly with GUID filename.")
+    parser.add_argument("--partition-json", type=str, default="{}", help='JSON string specifying partition columns and values. Values can be static strings or function references like \'get_year_month_date()\'. Example: \'{"YearMonthDate": "get_year_month_date()", "Region": "eastus"}\'')
 
     return parser.parse_args()
 
@@ -245,9 +297,16 @@ def main():
     credential = AzureCliCredential()
     mirroringClient = OpenMirroringClient(credential=credential, host=args.host_root_fqdn, logger=logger)
 
-    logger.info(f"Creating table '{args.table_name}' in schema '{args.schema_name}' with key columns: {args.key_cols}, file detection strategy: {args.file_detection_strategy}")
+    try:
+        partition_json = json.loads(args.partition_json)
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid partition JSON: {e}")
+        raise ValueError(f"Invalid partition JSON: {e}")
+
+    logger.info(f"Creating table '{args.table_name}' in schema '{args.schema_name}' with key columns: {args.key_cols}, file detection strategy: {args.file_detection_strategy}, partition_json: {partition_json}")
     file_detection_strategy = FileDetectionStrategy(args.file_detection_strategy)
-    mirroringClient.create_table(schema_name=args.schema_name, table_name=args.table_name, key_cols=args.key_cols, file_detection_strategy=file_detection_strategy)
+    is_partition_enabled = bool(partition_json)  # True if partition_json is not empty
+    mirroringClient.create_table(schema_name=args.schema_name, table_name=args.table_name, key_cols=args.key_cols, file_detection_strategy=file_detection_strategy, is_partition_enabled=is_partition_enabled)
 
     duration_text = f"for {args.duration} seconds" if args.duration > 0 else "indefinitely"
     logger.info(f"Starting concurrent upload mode with {args.concurrent_writers} writers, {args.interval} second intervals, running {duration_text}. Press Ctrl+C to stop.")
@@ -280,6 +339,7 @@ def main():
                     stop_event=stop_event,
                     custom_sql_template=args.custom_sql,
                     file_detection_strategy=file_detection_strategy,
+                    partition_json=partition_json,
                 )
                 futures.append(future)
 
