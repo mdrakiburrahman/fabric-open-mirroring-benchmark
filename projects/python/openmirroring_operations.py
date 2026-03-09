@@ -83,7 +83,7 @@ class OpenMirroringClient:
 
         return self._cached_token
 
-    def create_table(self, schema_name: str = None, table_name: str = "", key_cols: list = [], file_detection_strategy: FileDetectionStrategy = FileDetectionStrategy.SEQUENTIAL_FILE_NAME):
+    def create_table(self, schema_name: str = None, table_name: str = "", key_cols: list = [], file_detection_strategy: FileDetectionStrategy = FileDetectionStrategy.SEQUENTIAL_FILE_NAME, is_partition_enabled: bool = False):
         """
         Creates a folder in OneLake storage and a _metadata.json file inside it.
         This method is idempotent - if the table already exists, it will not recreate it.
@@ -92,6 +92,7 @@ class OpenMirroringClient:
         :param table_name: Name of the table.
         :param key_cols: List of key column names.
         :param file_detection_strategy: File detection strategy.
+        :param is_partition_enabled: Whether partitioning is enabled for this table.
         """
         if not table_name:
             raise ValueError("table_name cannot be empty.")
@@ -115,6 +116,8 @@ class OpenMirroringClient:
             if file_detection_strategy == FileDetectionStrategy.LAST_UPDATE_TIME_FILE_DETECTION:
                 metadata_content["fileDetectionStrategy"] = "LastUpdateTimeFileDetection"
                 metadata_content["isUpsertDefaultRowMarker"] = False
+            if is_partition_enabled:
+                metadata_content["isPartitionEnabled"] = "true"
 
             file_client = directory_client.create_file("_metadata.json")
             file_client.append_data(
@@ -211,6 +214,7 @@ class OpenMirroringClient:
         table_name: str = "",
         local_file_path: str = "",
         retry_on_conflict: int = 30,
+        partition_path: str = "",
     ):
         """
         Uploads a file to OneLake storage with support for concurrent writers.
@@ -219,6 +223,7 @@ class OpenMirroringClient:
         :param table_name: Name of the table.
         :param local_file_path: Path to the local file to be uploaded.
         :param retry_on_conflict: Number of times to retry getting next file name and renaming (default: 30).
+        :param partition_path: Optional partition path (e.g., "YearMonthDate=20260128/Region=eastus").
         """
         if not table_name:
             raise ValueError("table_name cannot be empty.")
@@ -226,13 +231,16 @@ class OpenMirroringClient:
             raise ValueError("Invalid local file path.")
 
         folder_path = f"{schema_name}.schema/{table_name}" if schema_name else f"{table_name}"
+        if partition_path:
+            folder_path = f"{folder_path}/{partition_path}"
 
         try:
             file_system_client = self.service_client.get_file_system_client(file_system="Files")
             directory_client = file_system_client.get_directory_client(f"LandingZone/{folder_path}")
 
             if not directory_client.exists():
-                raise FileNotFoundError(f"Folder '{folder_path}' not found.")
+                directory_client.create_directory()
+                self.logger.debug(f"Created partition directory: {folder_path}")
 
             temp_directory_path = f"LandingZone/{folder_path}/_Temp"
             temp_directory_client = file_system_client.get_directory_client(temp_directory_path)
@@ -294,6 +302,7 @@ class OpenMirroringClient:
         schema_name: str = None,
         table_name: str = "",
         local_file_path: str = "",
+        partition_path: str = "",
     ):
         """
         Uploads a file directly to OneLake storage with a GUID filename.
@@ -302,6 +311,7 @@ class OpenMirroringClient:
         :param schema_name: Optional schema name.
         :param table_name: Name of the table.
         :param local_file_path: Path to the local file to be uploaded.
+        :param partition_path: Optional partition path (e.g., "YearMonthDate=20260128/Region=eastus").
         """
         if not table_name:
             raise ValueError("table_name cannot be empty.")
@@ -309,13 +319,16 @@ class OpenMirroringClient:
             raise ValueError("Invalid local file path.")
 
         folder_path = f"{schema_name}.schema/{table_name}" if schema_name else f"{table_name}"
+        if partition_path:
+            folder_path = f"{folder_path}/{partition_path}"
 
         try:
             file_system_client = self.service_client.get_file_system_client(file_system="Files")
             directory_client = file_system_client.get_directory_client(f"LandingZone/{folder_path}")
 
             if not directory_client.exists():
-                raise FileNotFoundError(f"Folder '{folder_path}' not found.")
+                directory_client.create_directory()
+                self.logger.debug(f"Created partition directory: {folder_path}")
 
             guid_file_name = f"{uuid.uuid4()}.parquet"
             file_client = directory_client.create_file(guid_file_name)

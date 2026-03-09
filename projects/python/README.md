@@ -24,6 +24,67 @@ Format:
 python -m black --line-length 2000 .
 ```
 
+Create the mirrored database via [REST](https://learn.microsoft.com/en-us/fabric/mirroring/mirrored-database-rest-api#create-mirrored-database):
+
+```powershell
+$workspaceId = "b6d561c2-5df2-4161-90ef-2b1532ab6642"
+$databaseName = "openmirroring_python_test_3"
+$schemaName = "dbo"
+$tableName = "employees_no_marker_no_keys_1"
+
+$token = az account get-access-token --resource "https://analysis.windows.net/powerbi/api" --query accessToken -o tsv
+
+$mirroringJson = @{
+  properties = @{
+    source = @{
+      type = "GenericMirror"
+      typeProperties = $null
+    }
+    target = @{
+      type = "MountedRelationalDatabase"
+      typeProperties = @{
+        format = "Delta"
+        defaultSchema = $schemaName
+        compactionFrequency = 0
+      }
+    }
+  }
+} | ConvertTo-Json -Depth 10 -Compress
+
+$mirroringJsonBase64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($mirroringJson))
+
+$body = @{
+  displayName = $databaseName
+  description = "A mirrored database description"
+  definition = @{
+    parts = @(
+      @{
+        path = "mirroring.json"
+        payload = $mirroringJsonBase64
+        payloadType = "InlineBase64"
+      }
+    )
+  }
+} | ConvertTo-Json -Depth 10
+
+$uri = "https://api.fabric.microsoft.com/v1/workspaces/$workspaceId/mirroredDatabases"
+$headers = @{
+  "Authorization" = "Bearer $token"
+  "Content-Type" = "application/json"
+}
+
+$response = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body $body
+$mirroredDatabaseId = $response.id
+Write-Host "Created mirrored database with ID: $mirroredDatabaseId"
+
+# Validate in case
+(Invoke-RestMethod -Uri $uri -Method Get -Headers $headers | ConvertTo-Json -Depth 10) | jq .
+
+$startMirroringUri = "https://api.fabric.microsoft.com/v1/workspaces/$workspaceId/mirroredDatabases/$mirroredDatabaseId/startMirroring"
+Invoke-RestMethod -Uri $startMirroringUri -Method Post -Headers $headers
+Write-Host "Mirroring started for database: $databaseName"
+```
+
 Run:
 
 ```powershell
@@ -44,16 +105,17 @@ COPY (
 "@
 
 python write.py `
-  --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/b6d561c2-5df2-4161-90ef-2b1532ab6642/3fa4eb00-6d29-49ab-8cea-1df7c26aea3a" `
-  --schema-name "direct_staging_on" `
-  --table-name "employees_no_marker_no_keys" `
+  --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/b6d561c2-5df2-4161-90ef-2b1532ab6642/d25baeec-6bde-4a07-adaa-902da67c9ceb" `
+  --schema-name $schemaName `
+  --table-name $tableName `
   --key-cols "" `
-  --interval 0 `
+  --interval 1 `
   --duration 300000 `
-  --concurrent-writers 16 `
+  --concurrent-writers 2 `
   --num-rows 6250000 `
   --timeout 60 `
   --file-detection-strategy "LastUpdateTimeFileDetection" `
+  --partition-json '{"YearMonthDate": "get_year_month_date()", "Region": "global"}' `
   --custom-sql $PARUQET_GENERATOR_QUERY
 ```
 
