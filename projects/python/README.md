@@ -28,7 +28,7 @@ Create the mirrored database via [REST](https://learn.microsoft.com/en-us/fabric
 
 ```powershell
 $workspaceId = "b6d561c2-5df2-4161-90ef-2b1532ab6642"
-$databaseName = "openmirroring_python_test_2"
+$databaseName = "openmirroring_python_test_3"
 $schemaName = "dbo"
 $tableName = "employees_no_marker_no_keys_1"
 
@@ -77,6 +77,9 @@ $response = Invoke-RestMethod -Uri $uri -Method Post -Headers $headers -Body $bo
 $mirroredDatabaseId = $response.id
 Write-Host "Created mirrored database with ID: $mirroredDatabaseId"
 
+# Validate in case
+(Invoke-RestMethod -Uri $uri -Method Get -Headers $headers | ConvertTo-Json -Depth 10) | jq .
+
 $startMirroringUri = "https://api.fabric.microsoft.com/v1/workspaces/$workspaceId/mirroredDatabases/$mirroredDatabaseId/startMirroring"
 Invoke-RestMethod -Uri $startMirroringUri -Method Post -Headers $headers
 Write-Host "Mirroring started for database: $databaseName"
@@ -102,13 +105,13 @@ COPY (
 "@
 
 python write.py `
-  --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/b6d561c2-5df2-4161-90ef-2b1532ab6642/7ea9c97c-083f-4acc-980d-3bfc4a1cbf29" `
+  --host-root-fqdn "https://msit-onelake.dfs.fabric.microsoft.com/b6d561c2-5df2-4161-90ef-2b1532ab6642/d25baeec-6bde-4a07-adaa-902da67c9ceb" `
   --schema-name $schemaName `
   --table-name $tableName `
   --key-cols "" `
-  --interval 60 `
+  --interval 1 `
   --duration 300000 `
-  --concurrent-writers 16 `
+  --concurrent-writers 2 `
   --num-rows 6250000 `
   --timeout 60 `
   --file-detection-strategy "LastUpdateTimeFileDetection" `
